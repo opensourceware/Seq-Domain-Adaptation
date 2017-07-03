@@ -7,11 +7,12 @@ import optparse
 #from gensim.models.keyedvectors import KeyedVectors
 from gensim.models import Word2Vec
 
+
 class Embedding:
     """
-	Embedding class that loads the pretrained word2vec embeddings from 
-	gensim model or weights file into tensorflow variable format. 
-	"""
+    Embedding class that loads the pretrained word2vec embeddings from
+    gensim model or weights file into tensorflow variable format.
+    """
 
     def __init__(self, ext_emb_path, vocab_path=None):
         if vocab_path is None:
@@ -22,7 +23,7 @@ class Embedding:
             self.weights, self.word_to_id = word_to_index(train_vocab, model)
             self.emb_size = model['the'].shape[0]
             self.voc_size = len(self.word_to_id)
-            ###TODO:Better way to do Memory Management
+            #TODO:Better way to do Memory Management
             del(model)
         else:
             vocab = build_vocab()
@@ -38,12 +39,6 @@ class Embedding:
 
     def lookup(self, sentences):
         return tf.nn.embedding_lookup(self.weights, sentences)
-
-
-def train():
-    result = tf.contrib.learn.run_n(
-        {"output_fw": output_fw, "output_fb": output_fb,
-         "states_fw": states_fw, "states_bw": states_bw}, n=1, feed_dict=None)
 
 
 class BLSTM:
@@ -101,10 +96,11 @@ class FeedForwardTrg:
         return logits
 
 
-def loss(logits, labels, mask):
+def loss(logits, labels, mask=None):
     """docstring for CrossEntropy"""
     loss = tf.nn.softmax_cross_entropy_with_logits(logits=logits, labels=labels)
-    cost = tf.reduce_sum(tf.multiply(loss, mask))
+    #cost = tf.reduce_sum(tf.multiply(loss, mask))
+    cost = tf.reduce_sum(loss)
     ##TODO: Take the average of cost.
     return cost
 
@@ -150,29 +146,16 @@ if __name__ == "__main__":
 
     batch_input = tf.placeholder("int32", shape=[None, None])
     sequence_length = tf.placeholder("int32", shape=[None])
-    labels = tf.placeholder("int32", shape=[None, num_labels])
+    labels = tf.placeholder("int32", shape=[None, None])
     loss_mask = tf.placeholder("float64", shape=[None])
     embeddings = emb_layer.lookup(batch_input)
     hidden_output = blstm_layer.forward(embeddings, sequence_length)
     logits = ff_layer.forward(hidden_output)
-    cost = cnn.loss(logits, labels)
-    train_op = cnn.train(cost)
+    cost = loss(logits, labels)
+    train_op = train(cost)
 
     init = tf.global_variables_initializer()
     sess = tf.Session()
     sess.run(init)
 
 
-# Experiment
-"""
-
-import loader, config
-import model
-ext_emb_path = config.ext_emb_path
-input_x, input_y = loader.prepare_input(config.datadir+config.train)
-emb_layer = model.Embedding(ext_emb_path)
-maxseqlen, seqlen, input_x = utils.convert_to_id(input_x, emb_layer.word_to_id)
-input_y, tag_to_id = utils.convert_tag_to_id(input_y, maxlenseq)
-batches = utils.create_batches(input_x, input_y, seqlen, batch_size, maxseqlen)
-
-"""

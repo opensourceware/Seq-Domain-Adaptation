@@ -96,23 +96,31 @@ def create_batches(input_x, input_y, seqlen, batch_size, maxseqlen):
     for num, item in enumerate(input_x):
         inp.append([item, input_y[num]])
     #dico = dict(zip(range(len(inp)), seqlen))
-    #print type(dico)
-    inp = sorted(inp, key=lambda x:len(x[0]))
-    seqlen = sorted(seqlen)
+    #inp = sorted(inp, key=lambda x:len(x[0]))
+    #seqlen = sorted(seqlen)
     batch_len = len(input_x) // batch_size
-    inp = tf.convert_to_tensor(inp, name="input_data_x", dtype=tf.int32)
-    inp = pad_last_batch(inp, batch_len, batch_size)
-    inp = tf.reshape(inp, [batch_len + 1, batch_size, 2, maxseqlen])
-    for i in range(len(input_x)//batch_size):
-        batchseqlen.append(seqlen[(i*10)+(batch_size-1)])
-    return inp, batchseqlen
+    #inp = tf.convert_to_tensor(inp, name="input_data_x", dtype=tf.int32)
+    inp, seqlen = pad_last_batch(inp, seqlen, maxseqlen, len(inp), batch_size)
+    inp = np.array(inp)
+    inp = np.reshape(inp, [batch_len + 1, batch_size, 2, maxseqlen])
+    print len(seqlen)
+    seqlen = np.reshape(seqlen, [batch_len+1, batch_size])
+#    for i in range(batch_len):
+#        batchseqlen.append(seqlen[(i*batch_size)+(batch_size-1)])
+    return inp, seqlen
 
 
-def pad_last_batch(inp, batch_len, batch_size):
-    num_unbatched = batch_len % batch_size
-    if num_unbatched != 0:
-        paddings = [[0, num_unbatched], [0, 0], [0, 0]]
-        inp = tf.pad(inp, paddings, "CONSTANT")
-    return inp
+def pad_last_batch(inp, seqlen, maxseqlen, inp_len, batch_size):
+    num_unbatched = inp_len % batch_size
+    inp += [[[0]*maxseqlen, [0]*maxseqlen]]*(batch_size-num_unbatched)
+    seqlen += [0]*(batch_size-num_unbatched)
+    return inp, seqlen
+
+#def pad_last_batch(inp, batch_len, batch_size):
+#    num_unbatched = batch_len % batch_size
+#    if num_unbatched != 0:
+#        paddings = [[0, num_unbatched], [0, 0], [0, 0]]
+#        inp = tf.pad(inp, paddings, "CONSTANT")
+#    return inp
 
 # if __name__=="__main__":
