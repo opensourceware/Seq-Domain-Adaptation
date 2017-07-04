@@ -70,29 +70,11 @@ class FeedForward:
             inputs = tf.nn.dropout(inputs, config.keep_prob)
         # inp is reshaped to (-1, v_dim)
         # and multiplication happens for all examples in the batch
-        # Output logits is of the form [batch_size*sequence_length, num_labels]
+        # Output logits is of the form [num_labels, batch_size*sequence_length]
         lstm_size = int(inputs.get_shape()[2])
         inp = tf.reshape(tf.stack(axis=0, values=inputs), [-1, lstm_size])
-        logits = tf.transpose(tf.add(tf.matmul(inp, self.weights), self.biases))
-        return logits
-
-
-class FeedForwardTrg:
-    def __init__(self, input_size, num_labels):
-        # get_variable because softmax_w and softmax_b will be called multiple times during training.
-        self.weights = tf.Variable(tf.random_normal([input_size, num_labels], stddev=0.035, dtype=tf.float64),
-                                   name="weights", trainable=True)
-        self.biases = tf.Variable(tf.zeros(num_labels, dtype=tf.float64), name="biases", trainable=True)
-
-    def forward(self, inputs):
-        if config.keep_prob < 1:
-            inputs = tf.nn.dropout(inputs, config.keep_prob)
-        # inp is reshaped to (-1, v_dim)
-        # and multiplication happens for all examples in the batch
-        # Output logits is of the form [batch_size*sequence_length, num_labels]
-        lstm_size = int(inputs.get_shape()[2])
-        inp = tf.reshape(tf.stack(axis=0, values=inputs), [-1, lstm_size])
-        logits = tf.transpose(tf.add(tf.matmul(inp, self.weights), self.biases))
+        print inp.get_shape()
+        logits = tf.add(tf.matmul(inp, self.weights), self.biases)
         return logits
 
 
@@ -100,19 +82,14 @@ def loss(logits, labels, mask=None):
     """docstring for CrossEntropy"""
     loss = tf.nn.softmax_cross_entropy_with_logits(logits=logits, labels=labels)
     #cost = tf.reduce_sum(tf.multiply(loss, mask))
-    cost = tf.reduce_sum(loss)
-    ##TODO: Take the average of cost.
+    cost = tf.reduce_mean(loss)
     return cost
 
 
 def train(cost):
-    _lr = tf.Variable(0.3, trainable=False)
-    tvars = tf.trainable_variables()
-    grads, _ = tf.clip_by_global_norm(tf.gradients(cost, tvars), config.max_grad_norm)
+    _lr = tf.Variable(0.005, trainable=False)
     optimizer = tf.train.GradientDescentOptimizer(_lr)
-    _train_op = optimizer.apply_gradients(zip(grads, tvars))
-    # _new_lr = tf.placeholder(tf.float32, shape=[], name="new_learning_rate")
-    # _lr_update = tf.assign(self._lr, self._new_lr)
+    _train_op = optimizer.minimize(cost)
     return _train_op
 
 
@@ -122,13 +99,18 @@ def assign_lr(self, session, lr_value):
 
 if __name__ == "__main__":
 
+	import loader, config, utils
+	import tensorflow as tf
+	import model
+	import numpy as np
+
 	batch_size = 10
 	ext_emb_path = config.ext_emb_path
 	input_x, input_y = loader.prepare_input(config.datadir+config.train)
 	emb_layer = model.Embedding(ext_emb_path)
-	maxseqlen, seqlen, input_x = utils.convert_to_id(input_x, emb_layer.word_to_id)
-	input_y, tag_to_id = utils.convert_tag_to_id(input_y, maxseqlen)
-	batches, batchseqlen = utils.create_batches(input_x, input_y, seqlen, batch_size, maxseqlen)
+	seqlen, input_x = utils.convert_to_id(input_x, emb_layer.word_to_id)
+	input_y, tag_to_id = utils.convert_tag_to_id(input_y)
+	seqlen, inp = utils.create_batches(input_x, input_y, seqlen, batch_size)
 
 	num_labels = len(tag_to_id)
 	lstm_size = 100
@@ -137,7 +119,7 @@ if __name__ == "__main__":
 
 	batch_input = tf.placeholder("int32", shape=[None, None])
 	sequence_length = tf.placeholder("int32", shape=[None])
-	labels = tf.placeholder("int32", shape=[num_labels, None])
+	labels = tf.placeholder("int32", shape=[None, None, num_labels])
 	#loss_mask = tf.placeholder("float64", shape=[None])
 	embeddings = emb_layer.lookup(batch_input)
 	hidden_output = blstm_layer.forward(embeddings, sequence_length)
@@ -150,17 +132,25 @@ if __name__ == "__main__":
 	sess = tf.Session()
 	sess.run(init)
 
-	for seqlen, batch in zip(batchseqlen, batches):
-	    x, y = np.split(batch, 2, axis=1)
-	    x = np.squeeze(x)
-	    y = np.reshape(np.squeeze(y), [-1]).tolist()
-	    for n, label in enumerate(y):
-		y[n] = [0]*num_labels
-		y[n][label] = 1
-	    y = np.reshape(np.array(y), [46, -1])
-	    sess.run(train_op, feed_dict={batch_input:x, labels:y, sequence_length:seqlen})
-	    print sess.run(cost, feed_dict={batch_input:x, labels:y, sequence_length:seqlen})
-	    print sess.run(len(hidden_output), feed_dict={batch_input:x, labels:y, sequence_length:seqlen})
+	batch_len = len(inp)//batch_size
+	loss2 = []
 
+	loss = []
+	for _ in range(9):
+		loss.append([])
+		for seq_len, batch in zip(seqlen, inp):
+		    x = []
+		    y = []
+		    for b in batch:
+			x.append(b[0])
+			tags = b[1]
+			y.append([])
+			for label in tags:
+			    tag = [0]*num_labels
+			    tag[label] = 1
+			    y[-1].append(tag)
+		    sess.run(train_op, feed_dict={batch_input:x, labels:y, sequence_length:seq_len})
+		    loss[-1].append(sess.run(cost, feed_dict={batch_input:x, labels:y, sequence_length:seq_len}))
+		    print loss[-1][-1]
 
 

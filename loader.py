@@ -73,3 +73,5 @@ if __name__ == "__main__":
     #word_to_index = utils.word_to_index(vocab)
     #weights = load_emb(word_to_index, config.PRETRAINED_VECTORS)
     input_x, input_y = prepare_input(config.datadir + config.train)
+
+
