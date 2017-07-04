@@ -105,8 +105,6 @@ def create_batches(input_x, input_y, seqlen, batch_size, maxseqlen):
     inp = np.reshape(inp, [batch_len + 1, batch_size, 2, maxseqlen])
     print len(seqlen)
     seqlen = np.reshape(seqlen, [batch_len+1, batch_size])
-#    for i in range(batch_len):
-#        batchseqlen.append(seqlen[(i*batch_size)+(batch_size-1)])
     return inp, seqlen
 
 

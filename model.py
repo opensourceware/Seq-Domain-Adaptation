@@ -121,41 +121,46 @@ def assign_lr(self, session, lr_value):
 
 
 if __name__ == "__main__":
-    optparser = optparse.OptionParser()
-    optparser.add_option("-e", "--embed", default="vectors.txt", help="Embedding file location")
-    optparser.add_option("-v", "--vocab", default="types.txt", help="Vocab file location")
-    optparser.add_option("-l", "--lstm_size", default="100", type="int", help="LSTM hidden dimension")
-    optparser.add_option("-m", "--mem_size", default="100", type="int", help="LSTM hidden dimension")
-    opts = optparser.parse_args()[0]
-    ext_emb_path = config.ext_emb_path
-    vocab_path = opts.vocab
-    lstm_size = opts.lstm_size
-    mem_size = opts.mem_size
-    batch_size = 10
-    #Data processing
-    emb_layer = Embedding(ext_emb_path, vocab_path)
-    input_x, input_y = loader.prepare_input(config.datadir + config.train)
-    maxseqlen, seqlen, input_x = utils.convert_to_id(input_x, emb_layer.word_to_id)
-    input_y, tag_to_id = utils.convert_tag_to_id(input_y, maxseqlen)
-    num_labels = len(tag_to_id)
-    batches, batchseqlen = utils.create_batches(input_x, input_y, seqlen, batch_size, maxseqlen)
 
-    ##TODO: Debug the following code
-    blstm_layer = BLSTM(lstm_size)
-    ff_layer = FeedForward(2*lstm_size, len(tag_to_id))
+	batch_size = 10
+	ext_emb_path = config.ext_emb_path
+	input_x, input_y = loader.prepare_input(config.datadir+config.train)
+	emb_layer = model.Embedding(ext_emb_path)
+	maxseqlen, seqlen, input_x = utils.convert_to_id(input_x, emb_layer.word_to_id)
+	input_y, tag_to_id = utils.convert_tag_to_id(input_y, maxseqlen)
+	batches, batchseqlen = utils.create_batches(input_x, input_y, seqlen, batch_size, maxseqlen)
 
-    batch_input = tf.placeholder("int32", shape=[None, None])
-    sequence_length = tf.placeholder("int32", shape=[None])
-    labels = tf.placeholder("int32", shape=[None, None])
-    loss_mask = tf.placeholder("float64", shape=[None])
-    embeddings = emb_layer.lookup(batch_input)
-    hidden_output = blstm_layer.forward(embeddings, sequence_length)
-    logits = ff_layer.forward(hidden_output)
-    cost = loss(logits, labels)
-    train_op = train(cost)
+	num_labels = len(tag_to_id)
+	lstm_size = 100
+	blstm_layer = model.BLSTM(lstm_size)
+	ff_layer = model.FeedForward(2*lstm_size, num_labels)
 
-    init = tf.global_variables_initializer()
-    sess = tf.Session()
-    sess.run(init)
+	batch_input = tf.placeholder("int32", shape=[None, None])
+	sequence_length = tf.placeholder("int32", shape=[None])
+	labels = tf.placeholder("int32", shape=[num_labels, None])
+	#loss_mask = tf.placeholder("float64", shape=[None])
+	embeddings = emb_layer.lookup(batch_input)
+	hidden_output = blstm_layer.forward(embeddings, sequence_length)
+	logits = ff_layer.forward(hidden_output)
+	cost = model.loss(logits, labels)
+	train_op = model.train(cost)
+
+
+	init = tf.global_variables_initializer()
+	sess = tf.Session()
+	sess.run(init)
+
+	for seqlen, batch in zip(batchseqlen, batches):
+	    x, y = np.split(batch, 2, axis=1)
+	    x = np.squeeze(x)
+	    y = np.reshape(np.squeeze(y), [-1]).tolist()
+	    for n, label in enumerate(y):
+		y[n] = [0]*num_labels
+		y[n][label] = 1
+	    y = np.reshape(np.array(y), [46, -1])
+	    sess.run(train_op, feed_dict={batch_input:x, labels:y, sequence_length:seqlen})
+	    print sess.run(cost, feed_dict={batch_input:x, labels:y, sequence_length:seqlen})
+	    print sess.run(len(hidden_output), feed_dict={batch_input:x, labels:y, sequence_length:seqlen})
+
 
 
