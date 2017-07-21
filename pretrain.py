@@ -51,10 +51,11 @@ class BLSTM:
     def forward(self, input, input_length):
         if config.keep_prob < 1:
             input = tf.nn.dropout(input, config.keep_prob)
-        output, last_state = tf.nn.bidirectional_dynamic_rnn(cell_fw=self.cell_fw, cell_bw=self.cell_bw,
-                                                             dtype=tf.float64, sequence_length=input_length,
-                                                             inputs=input)
-        output = tf.concat(output, 2)
+        with tf.variable_scope("SourceLSTM"):
+            output, last_state = tf.nn.bidirectional_dynamic_rnn(cell_fw=self.cell_fw, cell_bw=self.cell_bw,
+                                                                 dtype=tf.float64, sequence_length=input_length,
+                                                                 inputs=input)
+            output = tf.concat(output, 2)
         return output
 
 
@@ -99,58 +100,76 @@ def assign_lr(self, session, lr_value):
 
 if __name__ == "__main__":
 
-	import loader, config, utils
-	import tensorflow as tf
-	import model
-	import numpy as np
+    batch_size = 10
+    ext_emb_path = config.ext_emb_path
+    input_x, input_y = loader.prepare_input(config.datadir+config.train)
+    emb_layer = Embedding(ext_emb_path)
+    seqlen, input_x = utils.convert_to_id(input_x, emb_layer.word_to_id)
+    input_y, tag_to_id = utils.create_and_convert_tag_to_id(input_y)
+    seqlen, inp = utils.create_batches(input_x, input_y, seqlen, config.batch_size)
 
-	batch_size = 10
-	ext_emb_path = config.ext_emb_path
-	input_x, input_y = loader.prepare_input(config.datadir+config.train)
-	emb_layer = model.Embedding(ext_emb_path)
-	seqlen, input_x = utils.convert_to_id(input_x, emb_layer.word_to_id)
-	input_y, tag_to_id = utils.convert_tag_to_id(input_y)
-	seqlen, inp = utils.create_batches(input_x, input_y, seqlen, batch_size)
+    num_labels = len(tag_to_id)
+    lstm_size = 100
+    blstm_layer = BLSTM(lstm_size)
+    ff_layer = FeedForward(2*lstm_size, num_labels)
 
-	num_labels = len(tag_to_id)
-	lstm_size = 100
-	blstm_layer = model.BLSTM(lstm_size)
-	ff_layer = model.FeedForward(2*lstm_size, num_labels)
-
-	batch_input = tf.placeholder("int32", shape=[None, None])
-	sequence_length = tf.placeholder("int32", shape=[None])
-	labels = tf.placeholder("int32", shape=[None, None, num_labels])
-	#loss_mask = tf.placeholder("float64", shape=[None])
-	embeddings = emb_layer.lookup(batch_input)
-	hidden_output = blstm_layer.forward(embeddings, sequence_length)
-	logits = ff_layer.forward(hidden_output)
-	cost = model.loss(logits, labels)
-	train_op = model.train(cost)
+    batch_input = tf.placeholder("int32", shape=[None, None], name="input")
+    sequence_length = tf.placeholder("int32", shape=[None], name="seqlen")
+    labels = tf.placeholder("int32", shape=[None, None, num_labels],  name="labels")
+    #loss_mask = tf.placeholder("float64", shape=[None])
+    embeddings = emb_layer.lookup(batch_input)
+    hidden_output = blstm_layer.forward(embeddings, sequence_length)
+    logits = ff_layer.forward(hidden_output)
+    cost = loss(logits, labels)
+    train_op = train(cost)
 
 
-	init = tf.global_variables_initializer()
-	sess = tf.Session()
-	sess.run(init)
+    init = tf.global_variables_initializer()
+    sess = tf.Session()
+    sess.run(init)
 
-	batch_len = len(inp)//batch_size
-	loss2 = []
+    batch_len = len(inp)//batch_size
+    loss2 = []
 
-	loss = []
-	for _ in range(9):
-		loss.append([])
-		for seq_len, batch in zip(seqlen, inp):
-		    x = []
-		    y = []
-		    for b in batch:
-			x.append(b[0])
-			tags = b[1]
-			y.append([])
-			for label in tags:
-			    tag = [0]*num_labels
-			    tag[label] = 1
-			    y[-1].append(tag)
-		    sess.run(train_op, feed_dict={batch_input:x, labels:y, sequence_length:seq_len})
-		    loss[-1].append(sess.run(cost, feed_dict={batch_input:x, labels:y, sequence_length:seq_len}))
-		    print loss[-1][-1]
+    loss = []
+    for _ in range(config.num_epochs):
+        loss.append([])
+        for seq_len, batch in zip(seqlen, inp):
+            x = []
+            y = []
+            for b in batch:
+                x.append(b[0])
+                tags = b[1]
+                y.append([])
+                for label in tags:
+                    tag = [0]*num_labels
+                    tag[label] = 1
+                    y[-1].append(tag)
+            sess.run(train_op, feed_dict={batch_input:x, labels:y, sequence_length:seq_len})
+            loss[-1].append(sess.run(cost, feed_dict={batch_input:x, labels:y, sequence_length:seq_len}))
+            print loss[-1][-1]
 
+    loader.save_smodel(sess)
+
+    ##Run model on test data
+    input_x, input_y = loader.prepare_input(config.datadir + config.test)
+    seqlen, input_x = utils.convert_to_id(input_x, emb_layer.word_to_id)
+    input_y = utils.convert_tag_to_id(tag_to_id, input_y)
+    seqlen, inp = utils.create_batches(input_x, input_y, seqlen, config.batch_size)
+    for seq_len, batch in zip(seqlen, inp):
+        x = []
+        y = []
+        for b in batch:
+            x.append(b[0])
+            tags = b[1]
+            y.append([])
+            for label in tags:
+                tag = [0] * num_labels
+                tag[label] = 1
+                y[-1].append(tag)
+        pred = sess.run(logits, feed_dict={batch_input: x, labels: y, sequence_length: seq_len})
+        for n, i in enumerate(pred):
+            for num, word in enumerate(i):
+                print "Predicted ", np.argmax(word)
+                print "True ", np.argmax(y[n][num])
 

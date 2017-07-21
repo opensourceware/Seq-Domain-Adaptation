@@ -2,7 +2,11 @@
 EntityList = "/iesl/data/meta/pubtator/entities.txt"
 datadir = "/home/mkaur/Desktop/ptb/"
 train = "train.txt"
+test = "test.txt"
 ext_emb_path = "/opt/MLS_db/word-embs/GoogleNews-vectors-negative300.bin"
 PRETRAINED_VECTORS = "/home/manpreetkaur/EE/word2vecTools/vectors.txt"
+batch_size = 10
+num_epochs = 10
+lstm_size = 100
 keep_prob = 0.7
 max_grad_norm = 5

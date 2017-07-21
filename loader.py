@@ -4,7 +4,7 @@ import nltk
 # from nltk.tokenize import RegexpTokenizer
 # import gensim
 import numpy as np
-# import tensorflow as tf
+import tensorflow as tf
 import config
 import utils
 
@@ -61,12 +61,44 @@ def prepare_input(file):
     return input_x, input_y
 
 
+def prepare_medpost_input(dir):
+    input_x = []
+    input_y = []
+    for file in os.listdir(dir):
+        with open(file, 'r') as f:
+            lines = f.read().split('\n')
+        if (len(lines)%2)!=0:
+            raise Exception("File has odd number of lines. Check file %s", file)
+        sample_index = range(len(lines)/2)
+        for ind in sample_index:
+            seq = lines[ind*2+1]
+            if seq=='':
+                continue
+            input_x.append([])
+            input_y.append([])
+            tokens = nltk.word_tokenize(seq)
+            for token in tokens:
+                input_x[-1].append(token.split('_')[0])
+                input_y[-1].append(token.split('_')[1])
+    return input_x, input_y
+
+
 def load_and_save_weights():
     vocab = build_vocab()
     word_to_index, _ = utils.word_to_index(vocab)
     weights = load_emb(word_to_index, config.PRETRAINED_VECTORS)
     np.savetxt('emb.mat', weights)
 
+
+def reload_smodel(sess):
+    saver = tf.train.import_meta_graph("model.ckpt.meta")
+    saver.restore(sess, tf.train.latest_checkpoint("./"))
+    graph = tf.get_default_graph()
+    return graph
+
+def save_smodel(sess):
+    saver = tf.train.Saver()
+    saver.save(sess, "./source_model")
 
 if __name__ == "__main__":
     #vocab = build_vocab()

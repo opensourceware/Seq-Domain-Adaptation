@@ -58,7 +58,13 @@ def convert_to_id(input_x, word_to_id):
     return seqlen, Idx
 
 
-def convert_tag_to_id(tags):
+def create_and_convert_tag_to_id(tags):
+    """
+    Used during training time when a disctionary mapping tags to id is created
+    and the train tags are converted to their ids simultaneously.
+    :param tags:
+    :return:
+    """
     tag_to_id = {}
     i = 0
     Idx = []
@@ -73,14 +79,33 @@ def convert_tag_to_id(tags):
     return Idx, tag_to_id
 
 
+def convert_tag_to_id(tag_to_id, tags):
+    """
+    Uses tag_to_id mapping to convert dev or test set data into their corresponding ids.
+    :param tags:
+    :return:
+    """
+    Idx = []
+    for sent in tags:
+        sentIdx = []
+        for tag in sent:
+            if tag not in tag_to_id:
+                raise Exception("Error dev/test time tag %s not seen during training", tag)
+            sentIdx.append(tag_to_id[tag])
+        Idx.append(sentIdx)
+    return Idx
+
+
 def create_batches(input_x, input_y, seqlen, batch_size):
     """
-    :param input_x:
-    :param input_y:
+    Implements batch creation by bucketing of same length sequences.
+    :param input_x: List of indices of words in the sequence
+    :param input_y: List of indices of tags in the sequence
     :param seqlen:
     :param batch_size:
-    :param maxseqlen:
-    :return:
+    :returns
+    :param seqbatch: A list of sequence length of each bucket
+    :param batches: A list of buckets of input/output pairs.
     """
     inp = []
     for num, item in enumerate(input_x):
@@ -113,4 +138,9 @@ def pad_last_batch(inp, seqlen, maxseqlen, inp_len, batch_size):
     seqlen += [0]*(batch_size-num_unbatched)
     return inp, seqlen
 
+
+def get_batch(data):
+    num_buckets = len(data)
+    randint = np.random.randint(num_buckets)
+    return data[randint]
 
