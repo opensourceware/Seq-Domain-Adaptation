@@ -1,0 +1,5 @@
+A domain adaptation system using Adversarial learning. This project performs domain adaptation over sequential data and for a sequential task. The tasks under consideration are part-of-speech tagging for news and medical domains.
+
+The tagged news data has been obtained from Wall Street Journal PTB corpus and medical tagged data is obtained from MedPOST.
+
+The trained networks are source LSTM for news data, target LSTM for medical data and a common classifier which can tag sequences from both source and target LSTM distributions.
