@@ -1,15 +1,26 @@
 import tensorflow as tf
-import config, loader, utils
+import config, loader, utils, pretrain
 
 
 class BaseLSTM(object):
+    """
+    Base class for bi-directional LSTM classes which are initialized to the the same weights.
+    """
     def __init__(self, graph):
-        self.pretrain_lstm_fw_weights = graph.get_tensor_by_name("bidirectional_rnn/fw/lstm_cell/weights:0")
-        self.pretrain_lstm_fw_biases = graph.get_tensor_by_name("bidirectional_rnn/fw/lstm_cell/biases:0")
-        self.pretrain_lstm_bw_weights = graph.get_tensor_by_name("bidirectional_rnn/bw/lstm_cell/weights:0")
-        self.pretrain_lstm_bw_biases = graph.get_tensor_by_name("bidirectional_rnn/bw/lstm_cell/biases:0")
+        """
+        Load all BLSTM weights and biases from the pre-computed graph.
+        :param graph: Graoh loaded from saved checkpoint.
+        """
+        self.pretrain_lstm_fw_weights = graph.get_tensor_by_name("SourceLSTM/bidirectional_rnn/fw/lstm_cell/weights:0")
+        self.pretrain_lstm_fw_biases = graph.get_tensor_by_name("SourceLSTM/bidirectional_rnn/fw/lstm_cell/biases:0")
+        self.pretrain_lstm_bw_weights = graph.get_tensor_by_name("SourceLSTM/bidirectional_rnn/bw/lstm_cell/weights:0")
+        self.pretrain_lstm_bw_biases = graph.get_tensor_by_name("SourceLSTM/bidirectional_rnn/bw/lstm_cell/biases:0")
 
     def _initialize(self, sess):
+        """
+        All BLSTM weights and biases of the child class are initialized
+        to values loaded from the graph in init.
+        """
         with tf.variable_scope("bidirectional_rnn"):
             with tf.variable_scope("fw"):
                 with tf.variable_scope("lstm_cell"):
@@ -26,6 +37,9 @@ class BaseLSTM(object):
 
 
 class SourceLSTM(BaseLSTM):
+    """
+    Source LSTM contains LSTM cell trained on PTB data. This LSTM cell is not trained during Adversarial training.
+    """
     def __init__(self, graph):
         ##No need for max num of time steps
         super(SourceLSTM, self).__init__(graph)
@@ -51,6 +65,10 @@ class SourceLSTM(BaseLSTM):
 
 
 class TargetLSTM(BaseLSTM):
+    """
+    Target LSTM contains LSTM cell which will be trained to adapt to sequence (POS) tagging task for target domain (medical data).
+    The weights are learned during adversarial training in which the TargetLSTM tries to mimic SourceLSTM's output distribution.
+    """
     def __init__(self, graph):
         ##No need for max num of time steps
         super(TargetLSTM, self).__init__(graph)
@@ -78,7 +96,7 @@ def main():
     batch_size = 10
     ext_emb_path = config.ext_emb_path
     input_x, input_y = loader.prepare_input(config.datadir+config.train)
-    emb_layer = model.Embedding(ext_emb_path)
+    emb_layer = pretrain.Embedding(ext_emb_path)
     seqlen, input_x = utils.convert_to_id(input_x, emb_layer.word_to_id)
     input_y, tag_to_id = utils.convert_tag_to_id(input_y)
     seqlen, inp = utils.create_batches(input_x, input_y, seqlen, batch_size)
@@ -88,7 +106,7 @@ def main():
     num_labels = len(tag_to_id)
     source_lstm = SourceLSTM(graph)
     target_lstm = TargetLSTM(graph)
-    ff_layer = model.FeedForward(2*config.lstm_size, num_labels)
+    ff_layer = pretrain.FeedForward(2*config.lstm_size, num_labels)
 
     init_op = tf.global_variables_initializer()
     batch_input = graph.get_tensor_by_name("input")

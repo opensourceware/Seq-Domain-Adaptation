@@ -4,6 +4,7 @@
 import config
 import numpy as np
 import tensorflow as tf
+import sklearn
 
 
 def create_input(sentence, word_to_id):
@@ -44,6 +45,14 @@ def word_to_index(vocab, model=None):
 
 
 def convert_to_id(input_x, word_to_id):
+    """
+    Converts words to their word IDs.
+    :param input_x: a list of word sequences
+    :param word_to_id: a dictionary mapping words to corresponding ids
+    :return:
+    :param seqlen: a list of lenghts of sequences
+    :param Idx: mapped list of words sequences
+    """
     seqlen = []
     Idx = []
     for sent in input_x:
@@ -90,7 +99,7 @@ def convert_tag_to_id(tag_to_id, tags):
         sentIdx = []
         for tag in sent:
             if tag not in tag_to_id:
-                raise Exception("Error dev/test time tag %s not seen during training", tag)
+                raise Exception("Error dev/test time tag %s not seen during training "+ tag)
             sentIdx.append(tag_to_id[tag])
         Idx.append(sentIdx)
     return Idx
@@ -143,4 +152,17 @@ def get_batch(data):
     num_buckets = len(data)
     randint = np.random.randint(num_buckets)
     return data[randint]
+
+
+def eval(predictions, true_labels, tag_to_id):
+    class_wise_f1 = sklearn.metrics.f1_score(predictions, true_labels, average=None)
+    macro_avg = sklearn.metrics.f1_score(predictions, true_labels, average="macro")
+    print "Class wise F1 score is as follows:"
+    for tag, id in tag_to_id.items():
+        try:
+            print tag + "\t:\t" + str(class_wise_f1[id])
+        except IndexError:
+            continue
+    print "\n\n" + "Macro Avg F1 score is "+str(macro_avg)
+
 

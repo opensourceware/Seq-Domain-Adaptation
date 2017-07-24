@@ -29,9 +29,9 @@ class AdversarialLearning():
         self.source_lstm = generator.SourceLSTM(graph)
         self.target_lstm = generator.SourceLSTM(graph)
 
-        self.batch_input = graph.get_tensor_by_name("input")
-        self.sequence_length = graph.get_tensor_by_name("seqlen")
-        self.labels = graph.get_tensor_by_name("labels")
+        self.batch_input = graph.get_operation_by_name("input")
+        self.sequence_length = graph.get_operation_by_name("seqlen")
+        self.labels = graph.get_operation_by_name("labels")
 
         embeddings = self.emb_layer.lookup(self.batch_input)
         source_hidden_output = self.source_lstm.forward(embeddings, self.sequence_length)
@@ -55,6 +55,7 @@ class AdversarialLearning():
         self.d_cost = tf.reduce_mean(self.d_loss)
 
     def tlstm_loss(self, predictions):
+        #Target LSTM tries to maximally confuse the discriminator.
         self.g_loss = tf.nn.softmax_cross_entropy_with_logits(logits=predictions, labels=[0.5, 0.5])
         self.g_cost = tf.reduce_mean(self.g_loss)
 
@@ -90,17 +91,17 @@ class AdversarialLearning():
             sess.run(self.tlstm_train_op, feed_dict={self.batch_input:inp, self.sequence_length:inp_len})
 
     def train(self):
-        input_x, input_y = loader.prepare_input(config.datadir + config.train)
-        seqlen, input_x = utils.convert_to_id(input_x, self.emb_layer.word_to_id)
-        input_y, tag_to_id = utils.convert_tag_to_id(input_y)
-        seqlen, inp = utils.create_batches(input_x, input_y, seqlen, config.batch_size)
-        input_x = [[seq[0] for seq in batch] for batch in inp]
-        s_len = len(input_x)
-        t_len = len()
+        input_x, _ = loader.prepare_input(config.datadir + config.train)
+        s_seqlen, s_input = utils.convert_to_id(input_x, self.emb_layer.word_to_id)
+        input_x, _ = loader.prepare_medpost_input()
+        t_seqlen, t_input = utils.convert_to_id(input_x, self.emb_layer.word_to_id)
+
+        s_len = len(s_input)
+        t_len = len(t_input)
         for _ in range(config.num_epochs):
             for i in range(t_len):
-                self.tlstm_train(input_x, seqlen)
-                self.discrim_train(input_x, seqlen)
+                self.tlstm_train(s_input, s_seqlen)
+                self.discrim_train(s_input, t_input, s_seqlen, t_seqlen)
 
 
 if __name__ == "__main__":

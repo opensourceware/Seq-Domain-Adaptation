@@ -33,7 +33,7 @@ def build_vocab():
     """
     vocab = []
     with open(config.datadir+config.train, 'r') as f:
-        string = f.read().lower()
+        string = f.read()
         words = nltk.word_tokenize(string)
         vocab += words
     vocab = set(vocab)
@@ -61,22 +61,23 @@ def prepare_input(file):
     return input_x, input_y
 
 
-def prepare_medpost_input(dir):
+def prepare_medpost_input():
+    dir = config.medpost_train_datadir
     input_x = []
     input_y = []
     for file in os.listdir(dir):
-        with open(file, 'r') as f:
+        with open(dir+file, 'r') as f:
             lines = f.read().split('\n')
+            lines.pop()
         if (len(lines)%2)!=0:
             raise Exception("File has odd number of lines. Check file %s", file)
-        sample_index = range(len(lines)/2)
-        for ind in sample_index:
+        for ind in range(len(lines)/2):
             seq = lines[ind*2+1]
             if seq=='':
                 continue
             input_x.append([])
             input_y.append([])
-            tokens = nltk.word_tokenize(seq)
+            tokens = seq.split()
             for token in tokens:
                 input_x[-1].append(token.split('_')[0])
                 input_y[-1].append(token.split('_')[1])
@@ -91,10 +92,11 @@ def load_and_save_weights():
 
 
 def reload_smodel(sess):
-    saver = tf.train.import_meta_graph("model.ckpt.meta")
+    saver = tf.train.import_meta_graph("source_model.meta")
     saver.restore(sess, tf.train.latest_checkpoint("./"))
     graph = tf.get_default_graph()
     return graph
+
 
 def save_smodel(sess):
     saver = tf.train.Saver()
