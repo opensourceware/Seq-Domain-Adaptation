@@ -12,3 +12,4 @@ num_epochs = 10
 lstm_size = 100
 keep_prob = 0.7
 max_grad_norm = 5
+restore = True

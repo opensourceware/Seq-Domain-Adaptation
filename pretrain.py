@@ -123,10 +123,13 @@ if __name__ == "__main__":
     cost = loss(logits, labels)
     train_op = train(cost)
 
-
-    init = tf.global_variables_initializer()
     sess = tf.Session()
-    sess.run(init)
+    if config.restore:
+        saver = tf.train.Saver()
+        saver.restore(sess, "./source_model")
+    else:
+        init = tf.global_variables_initializer()
+        sess.run(init)
 
     batch_len = len(inp)//batch_size
     loss2 = []
@@ -177,112 +180,3 @@ if __name__ == "__main__":
             true_labels.append(np.argmax(t))
 
     eval(predictions, true_labels, tag_to_id)
-
-"""
-import loader, config, utils
-import tensorflow as tf
-import pretrain
-import numpy as np
-
-batch_size = config.batch_size
-ext_emb_path = config.ext_emb_path
-input_x, input_y = loader.prepare_input(config.datadir+config.train)
-emb_layer = pretrain.Embedding(ext_emb_path)
-seqlen, input_x = utils.convert_to_id(input_x, emb_layer.word_to_id)
-input_y, tag_to_id = utils.create_and_convert_tag_to_id(input_y)
-seqlen, inp = utils.create_batches(input_x, input_y, seqlen, batch_size)
-
-num_labels = len(tag_to_id)
-lstm_size = 100
-blstm_layer = pretrain.BLSTM(lstm_size)
-ff_layer = pretrain.FeedForward(2*lstm_size, num_labels)
-
-batch_input = tf.placeholder("int32", shape=[None, None], name="input")
-sequence_length = tf.placeholder("int32", shape=[None], name="seqlen")
-labels = tf.placeholder("int32", shape=[None, None, num_labels],  name="labels")
-#loss_mask = tf.placeholder("float64", shape=[None])
-embeddings = emb_layer.lookup(batch_input)
-hidden_output = blstm_layer.forward(embeddings, sequence_length)
-logits = ff_layer.forward(hidden_output)
-cost = pretrain.loss(logits, labels)
-train_op = pretrain.train(cost)
-
-
-init = tf.global_variables_initializer()
-sess = tf.Session()
-sess.run(init)
-
-batch_len = len(inp)//batch_size
-loss2 = []
-
-loss = []
-for _ in range(config.num_epochs):
-    loss.append([])
-    for seq_len, batch in zip(seqlen, inp):
-        x = []
-        y = []
-        for b in batch:
-            x.append(b[0])
-            tags = b[1]
-            y.append([])
-            for label in tags:
-                tag = [0]*num_labels
-                tag[label] = 1
-                y[-1].append(tag)
-        sess.run(train_op, feed_dict={batch_input:x, labels:y, sequence_length:seq_len})
-        loss[-1].append(sess.run(cost, feed_dict={batch_input:x, labels:y, sequence_length:seq_len}))
-        print loss[-1][-1]
-
-
-#loader.save_smodel(sess)
-
-##Run model on test data
-input_x, input_y = loader.prepare_input(config.datadir + config.test)
-seqlen, input_x = utils.convert_to_id(input_x, emb_layer.word_to_id)
-input_y = utils.convert_tag_to_id(tag_to_id, input_y)
-seqlen, inp = utils.create_batches(input_x, input_y, seqlen, config.batch_size)
-for seq_len, batch in zip(seqlen, inp):
-    x = []
-    y = []
-    for b in batch:
-        x.append(b[0])
-        tags = b[1]
-        y.append([])
-        for label in tags:
-            tag = [0] * num_labels
-            tag[label] = 1
-            y[-1].append(tag)
-    pred = sess.run(logits, feed_dict={batch_input: x, labels: y, sequence_length: seq_len})
-    for t, p in zip(y, pred):
-        print "Predicted ", np.argmax(p)
-        print "True ", np.argmax(t)
-
-
-input_x, input_y = loader.prepare_input(config.datadir + config.test)
-seqlen, input_x = utils.convert_to_id(input_x, emb_layer.word_to_id)
-input_y = utils.convert_tag_to_id(tag_to_id, input_y)
-seqlen, inp = utils.create_batches(input_x, input_y, seqlen, config.batch_size)
-predictions = []
-true_labels = []
-for seq_len, batch in zip(seqlen, inp):
-    x = []
-    y = []
-    for b in batch:
-        x.append(b[0])
-        tags = b[1]
-        y.append([])
-        for label in tags:
-            tag = [0] * num_labels
-            tag[label] = 1
-            y[-1].append(tag)
-    pred = sess.run(logits, feed_dict={batch_input: x, labels: y, sequence_length: seq_len})
-    for t, p in zip(y, pred):
-        print "Predicted ", np.argmax(p)
-        print "True ", np.argmax(t)
-        predictions.append(np.argmax(p))
-        true_labels.append(np.argmax(t))
-
-eval(predictions, true_labels, tag_to_id)
-
-
-"""

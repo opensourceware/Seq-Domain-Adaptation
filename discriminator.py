@@ -20,44 +20,54 @@ class Discriminator:
         return  self.prediction
 
 
-class AdversarialLearning():
+class AdversarialLearning(object):
 
-    def __init__(self, sess, graph):
+    def __init__(self, sess):
         self.sess = sess
-        self.graph = graph
+
+        self.batch_input = tf.placeholder("int32", shape=[None, None], name="input")
+        self.sequence_length = tf.placeholder("int32", shape=[None], name="seqlen")
+        self.label = tf.placeholder(tf.bool, shape=None, name="labels")
+
         self.emb_layer = pretrain.Embedding(config.ext_emb_path)
-        self.source_lstm = generator.SourceLSTM(graph)
-        self.target_lstm = generator.SourceLSTM(graph)
-
-        self.batch_input = graph.get_operation_by_name("input")
-        self.sequence_length = graph.get_operation_by_name("seqlen")
-        self.labels = graph.get_operation_by_name("labels")
-
+        self.source_lstm = generator.SourceLSTM()
         embeddings = self.emb_layer.lookup(self.batch_input)
-        source_hidden_output = self.source_lstm.forward(embeddings, self.sequence_length)
-        target_hidden_output = self.target_lstm.forward(embeddings, self.sequence_length)
-        self.source_lstm._initialize(sess)
+        _, self.source_last_state = self.source_lstm.forward(embeddings, self.sequence_length)
+        #Restore source LSTM after SourceLSTM variables are created.
+        saver = tf.train.Saver()
+        saver.restore(sess, "./source_model")
+        #Now create the target LSTM and initialize from the weights in the saved checkpoint.
+        self.target_lstm = generator.TargetLSTM()
+        _, self.target_last_state = self.target_lstm.forward(embeddings, self.sequence_length)
         self.target_lstm._initialize(sess)
 
         self.discriminator = Discriminator(config.lstm_size*2)
+        self.discrim_logits = tf.cond(self.label, lambda: self.discriminator.classify(self.target_last_state),
+                    lambda: self.discriminator.classify(self.source_last_state))
+        self.tlstm_logits = self.discriminator.classify(self.target_last_state)
+
         self.optimizer = tf.AdamOptimizer(lr)
-        self.d_loss = None
-        self.d_cost = None
-        self.g_loss = None
-        self.g_cost = None
+        self.discrim_loss(self.discrim_logits, self.label)
+        self.tlstm_loss(self.tlstm_logits)
         d_tvars = [param for param in tf.trainable_variables() if 'discriminator' in param]
         g_tvars = [param for param in tf.trainable_variables() if "TargetLSTM" in param]
         self.discrim_train_op = self.optimizer.minimize(self.d_cost, var_list=d_tvars)
         self.tlstm_train_op = self.optimizer.minimize(self.g_cost, var_list=g_tvars)
 
-    def discrim_loss(self, logits, true_label):
+
+    def discrim_loss(self, logits, label):
+        true_label = [0, 0]
+        label = tf.cond(label, lambda: 1, lambda: 0)
+        true_label[label] = 1
         self.d_loss = tf.nn.softmax_cross_entropy_with_logits(logits=logits, labels=true_label)
         self.d_cost = tf.reduce_mean(self.d_loss)
+
 
     def tlstm_loss(self, predictions):
         #Target LSTM tries to maximally confuse the discriminator.
         self.g_loss = tf.nn.softmax_cross_entropy_with_logits(logits=predictions, labels=[0.5, 0.5])
         self.g_cost = tf.reduce_mean(self.g_loss)
+
 
     def discrim_train(self, s_input, t_input, s_seqlen, t_seqlen):
         for i in range(5):
@@ -71,23 +81,13 @@ class AdversarialLearning():
             else:
                 ind, inp = utils.get_batch(t_input)
                 inp_len = t_seqlen[ind]
-            embeddings = self.emb_layer.lookup(inp)
-            if label==0:
-                _, hidden_state = self.source_lstm.forward(embeddings, inp_len)
-            else:
-                _, hidden_state = self.target_lstm.forward(embeddings, inp_len)
-            logits = self.discriminator.classify(hidden_state)
-            self.discriminator.loss(logits, true_label)
             sess.run(self.discrim_train_op, feed_dict={self.batch_input:inp, self.sequence_length:inp_len})
+
 
     def tlstm_train(self, input_x, seqlen):
         for i in range(5):
             ind, inp = utils.get_batch(input_x)
             inp_len = seqlen[ind]
-            embeddings = self.emb_layer.lookup(inp)
-            _, hidden_state = self.target_lstm.forward(embeddings, inp_len)
-            logits = self.discriminator.classify(hidden_state)
-            self.tlstm_loss(logits)
             sess.run(self.tlstm_train_op, feed_dict={self.batch_input:inp, self.sequence_length:inp_len})
 
     def train(self):
@@ -99,13 +99,23 @@ class AdversarialLearning():
         s_len = len(s_input)
         t_len = len(t_input)
         for _ in range(config.num_epochs):
-            for i in range(t_len):
+            for i in range(t_len/(10*config.batch_size)):
                 self.tlstm_train(s_input, s_seqlen)
                 self.discrim_train(s_input, t_input, s_seqlen, t_seqlen)
 
 
 if __name__ == "__main__":
     sess = tf.Session()
+    batch_size = config.batch_size
+    ext_emb_path = config.ext_emb_path
+    input_x, input_y = loader.prepare_input(config.datadir + config.train)
+    emb_layer = pretrain.Embedding(ext_emb_path)
+    seqlen, input_x = utils.convert_to_id(input_x, emb_layer.word_to_id)
+    input_y, tag_to_id = utils.create_and_convert_tag_to_id(input_y)
+    seqlen, inp = utils.create_batches(input_x, input_y, seqlen, batch_size)
+
+    num_labels = len(tag_to_id)
+
     graph = loader.reload_smodel(sess)
-    adv = AdversarialLearning(sess, graph)
+    adv = AdversarialLearning(sess)
 
