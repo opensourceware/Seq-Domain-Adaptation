@@ -27,7 +27,7 @@ class AdversarialLearning(object):
 
         self.batch_input = tf.placeholder("int32", shape=[None, None], name="input")
         self.sequence_length = tf.placeholder("int32", shape=[None], name="seqlen")
-        self.label = tf.placeholder(tf.bool, shape=None, name="labels")
+        self.label = tf.placeholder(tf.bool, shape=[2], name="labels")
 
         self.emb_layer = pretrain.Embedding(config.ext_emb_path)
         self.source_lstm = generator.SourceLSTM()
@@ -42,11 +42,12 @@ class AdversarialLearning(object):
         self.target_lstm._initialize(sess)
 
         self.discriminator = Discriminator(config.lstm_size*2)
-        self.discrim_logits = tf.cond(self.label, lambda: self.discriminator.classify(self.target_last_state),
+        self.discrim_logits = tf.cond(self.label[1], lambda: self.discriminator.classify(self.target_last_state),
                     lambda: self.discriminator.classify(self.source_last_state))
         self.tlstm_logits = self.discriminator.classify(self.target_last_state)
 
-        self.optimizer = tf.AdamOptimizer(lr)
+        #Can fix the learning rate in AdamOptimizer because the final gradient updates decay in the formula.
+        self.optimizer = tf.train.AdamOptimizer(0.005)
         self.discrim_loss(self.discrim_logits, self.label)
         self.tlstm_loss(self.tlstm_logits)
         d_tvars = [param for param in tf.trainable_variables() if 'discriminator' in param]
@@ -55,10 +56,7 @@ class AdversarialLearning(object):
         self.tlstm_train_op = self.optimizer.minimize(self.g_cost, var_list=g_tvars)
 
 
-    def discrim_loss(self, logits, label):
-        true_label = [0, 0]
-        label = tf.cond(label, lambda: 1, lambda: 0)
-        true_label[label] = 1
+    def discrim_loss(self, logits, true_label):
         self.d_loss = tf.nn.softmax_cross_entropy_with_logits(logits=logits, labels=true_label)
         self.d_cost = tf.reduce_mean(self.d_loss)
 

@@ -31,10 +31,11 @@ class Embedding:
             self.voc_size = len(self.word_to_id)
             weights = np.loadtxt('emb.mat')
             self.emb_size = weights[0].shape[0]
-            pad = np.zeros(shape=self.emb_size, dtype='float64')
+            pad = np.zeros(shape=self.emb_size, dtype='float32')
             unk = np.random.normal(0.001, 0.01, self.emb_size)
             weights = np.vstack((weights, unk, pad))
             self.weights = tf.Variable(weights, trainable=False, name="pretrained_embeddings")
+            self.weights.dtype = np.float32
         # self.weights = tf.stack([weights, pad_zeros])
 
     def lookup(self, sentences):
@@ -53,7 +54,7 @@ class BLSTM:
             input = tf.nn.dropout(input, config.keep_prob)
         with tf.variable_scope("SourceLSTM"):
             output, last_state = tf.nn.bidirectional_dynamic_rnn(cell_fw=self.cell_fw, cell_bw=self.cell_bw,
-                                                                 dtype=tf.float64, sequence_length=input_length,
+                                                                 dtype=tf.float32, sequence_length=input_length,
                                                                  inputs=input)
             output = tf.concat(output, 2)
         return output
@@ -62,9 +63,9 @@ class BLSTM:
 class FeedForward:
     def __init__(self, input_size, num_labels):
         # get_variable because softmax_w and softmax_b will be called multiple times during training.
-        self.weights = tf.Variable(tf.random_normal([input_size, num_labels], stddev=0.035, dtype=tf.float64),
+        self.weights = tf.Variable(tf.random_normal([input_size, num_labels], stddev=0.035, dtype=tf.float32),
                                    name="weights", trainable=True)
-        self.biases = tf.Variable(tf.zeros(num_labels, dtype=tf.float64), name="biases", trainable=True)
+        self.biases = tf.Variable(tf.zeros(num_labels, dtype=tf.float32), name="biases", trainable=True)
 
     def forward(self, inputs):
         if config.keep_prob < 1:
@@ -115,13 +116,16 @@ if __name__ == "__main__":
 
     batch_input = tf.placeholder("int32", shape=[None, None], name="input")
     sequence_length = tf.placeholder("int32", shape=[None], name="seqlen")
-    labels = tf.placeholder("int32", shape=[None, None, num_labels],  name="labels")
+    labels = tf.placeholder("int32", shape=[None, None],  name="labels")
     #loss_mask = tf.placeholder("float64", shape=[None])
     embeddings = emb_layer.lookup(batch_input)
     hidden_output = blstm_layer.forward(embeddings, sequence_length)
-    logits = ff_layer.forward(hidden_output)
-    cost = loss(logits, labels)
-    train_op = train(cost)
+    unary_potentials = ff_layer.forward(hidden_output)
+    unary_potentials = tf.reshape(unary_potentials, [config.batch_size, -1, num_labels])
+    log_likelihood, transition_params = tf.contrib.crf.crf_log_likelihood(unary_potentials, labels, sequence_length)
+    loss =  tf.reduce_mean(-log_likelihood)
+    #cost = loss(logits, labels)
+    train_op = train(loss)
 
     sess = tf.Session()
     if config.restore:
@@ -145,11 +149,9 @@ if __name__ == "__main__":
                 tags = b[1]
                 y.append([])
                 for label in tags:
-                    tag = [0]*num_labels
-                    tag[label] = 1
-                    y[-1].append(tag)
+                    y[-1].append(label)
             sess.run(train_op, feed_dict={batch_input:x, labels:y, sequence_length:seq_len})
-            loss[-1].append(sess.run(cost, feed_dict={batch_input:x, labels:y, sequence_length:seq_len}))
+            loss[-1].append(sess.run(loss, feed_dict={batch_input:x, labels:y, sequence_length:seq_len}))
             print loss[-1][-1]
 
     loader.save_smodel(sess)
@@ -172,7 +174,8 @@ if __name__ == "__main__":
                 tag = [0] * num_labels
                 tag[label] = 1
                 y[-1].append(tag)
-        pred = sess.run(logits, feed_dict={batch_input: x, labels: y, sequence_length: seq_len})
+        unary_pot, trans_mat = sess.run(unary_potentials, transition_params, feed_dict={batch_input: x, labels: y, sequence_length: seq_len})
+        pred, _ = tf.contrib.crf.viterbi_decode(unary_pot, trans_mat)
         for t, p in zip(y, pred):
             print "Predicted ", np.argmax(p)
             print "True ", np.argmax(t)
@@ -180,3 +183,5 @@ if __name__ == "__main__":
             true_labels.append(np.argmax(t))
 
     eval(predictions, true_labels, tag_to_id)
+
+
