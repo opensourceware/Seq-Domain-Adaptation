@@ -61,13 +61,75 @@ def prepare_input(file):
     return input_x, input_y
 
 
+target_to_source_mappings = {
+    "MC": "CD",
+    "DD": "DT",
+    "II": "IN",
+    "JJS": "JJT",
+    "RR": "RB",
+    "RRR": "RBR",
+    "RRT": "RBS",
+    "VM": "MD",
+    "GE": "POS",
+    "DB": "PDT",
+    "PNR": "WDT",
+    "PN": "PRP",
+    "PNG": "PRP$",
+    "PND": "DT",
+    "VVZ": "VBZ",
+    "VDZ": "VBZ",
+    "VHZ": "VBZ",
+    "VBI": "VB",
+    "VVI": "VB",
+    "VHI": "VB",
+    "VHB": "VBP",
+    "VVB": "VBP",
+    "VDN": "VBN",
+    "VVN": "VBN",
+    "VDD": "VBD",
+    "VHD": "VBD",
+    "VVD": "VBD",
+    "VHG": "VBG",
+    "VVG": "VBG",
+    "VVGN": "NN",
+    "VVGJ": "JJ",
+    "VVNJ": "JJ"
+    }
+
+def map_tags(data):
+    #Replace all tags of format <<tag+>> by <<tag>>.
+    data = re.sub(r'(_[A-Z]+)\+', r'\g<1>', data)
+    #Change more_RR/less_RR to more_RBR/less_RBR
+    data = re.sub(r'(more|less_)RR ', r'\g<1>RBR ', data)
+    #Change more/less_DD with more/less_JJR
+    data = re.sub(r'(more|less_)DD ', r'\g<1>JJR ', data)
+    #Replace most_PND with most_JJS
+    data = re.sub(r'(more_)PND ', r'\g<1>JJS ', data)
+    #Replace few_PND with few_JJ
+    data = re.sub(r'(few|same_)PND ', r'\g<1>JJ ', data)
+    #Replace be_VBB with be_VB
+    data = re.sub(r'(be_)VBB ', r'\g<1>VB ', data)
+    # Replace are_VBB with are_VBP
+    data = re.sub(r'(are_)VBB ', r'\g<1>VBP ', data)
+    #Replace to_TO do_VDB with do_VB
+    data = re.sub(r'(to_TO do_)VDB ', r'\g<1>VB ', data)
+    #Replace remaining do_VDB with do_VB
+    data = re.sub(r'(do_)VDB ', r'\g<1>VBP ', data)
+    #Replace direct tag mapping schemes from the dictionary
+    for ttag, stag in target_to_source_mappings.items():
+        data = re.sub(ttag+" ", stag+" ", data)
+    return data
+
+
 def prepare_medpost_input():
     dir = config.medpost_train_datadir
     input_x = []
     input_y = []
     for file in os.listdir(dir):
         with open(dir+file, 'r') as f:
-            lines = f.read().split('\n')
+            data = f.read()
+            data = map_tags(data)
+            lines = data.split('\n')
             lines.pop()
         if (len(lines)%2)!=0:
             raise Exception("File has odd number of lines. Check file %s", file)
