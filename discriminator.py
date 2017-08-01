@@ -1,6 +1,7 @@
 import tensorflow as tf
 import numpy as np
 import config, pretrain, generator, loader, utils
+import matplotlib.pyplot as plt
 
 class Discriminator:
     """
@@ -50,10 +51,10 @@ class AdversarialLearning(object):
         self.optimizer = tf.train.AdamOptimizer(0.005)
         self.discrim_loss(self.discrim_logits, self.label)
         self.tlstm_loss(self.tlstm_logits)
-        d_tvars = [param for param in tf.trainable_variables() if 'discriminator' in param]
-        g_tvars = [param for param in tf.trainable_variables() if "TargetLSTM" in param]
-        self.discrim_train_op = self.optimizer.minimize(self.d_cost, var_list=d_tvars)
-        self.tlstm_train_op = self.optimizer.minimize(self.g_cost, var_list=g_tvars)
+        self.d_tvars = [param for param in tf.trainable_variables() if 'discriminator' in param.name]
+        self.g_tvars = [param for param in tf.trainable_variables() if "TargetLSTM" in param.name]
+        self.discrim_train_op = self.optimizer.minimize(self.d_cost, var_list=self.d_tvars)
+        self.tlstm_train_op = self.optimizer.minimize(self.g_cost, var_list=self.g_tvars)
 
 
     def discrim_loss(self, logits, true_label):
@@ -72,48 +73,57 @@ class AdversarialLearning(object):
             label = np.random.randint(2)
             true_label = [0, 0]
             true_label[label] = 1
-            true_label = true_label*config.batch_size
+            ##TODO: Fix for batch_size!=1
+            #true_label = true_label*config.batch_size
+            true_label = [bool(a) for a in true_label]
             if label==0:
                 ind, inp = utils.get_batch(s_input)
                 inp_len = s_seqlen[ind]
             else:
                 ind, inp = utils.get_batch(t_input)
                 inp_len = t_seqlen[ind]
-            sess.run(self.discrim_train_op, feed_dict={self.batch_input:inp, self.sequence_length:inp_len})
+            self.sess.run(self.discrim_train_op, feed_dict={self.batch_input:inp, self.sequence_length:inp_len, self.label:true_label})
+        return self.sess.run(self.d_cost, feed_dict={self.batch_input:inp, self.sequence_length:inp_len, self.label:true_label})
 
 
     def tlstm_train(self, input_x, seqlen):
         for i in range(5):
             ind, inp = utils.get_batch(input_x)
             inp_len = seqlen[ind]
-            sess.run(self.tlstm_train_op, feed_dict={self.batch_input:inp, self.sequence_length:inp_len})
+            self.sess.run(self.tlstm_train_op, feed_dict={self.batch_input:inp, self.sequence_length:inp_len})
+        return self.sess.run(self.g_cost, feed_dict={self.batch_input:inp, self.sequence_length:inp_len})
 
     def train(self):
         input_x, _ = loader.prepare_input(config.datadir + config.train)
         s_seqlen, s_input = utils.convert_to_id(input_x, self.emb_layer.word_to_id)
+        s_seqlen, s_input = utils.create_batches(s_input, s_seqlen)
         input_x, _ = loader.prepare_medpost_input()
         t_seqlen, t_input = utils.convert_to_id(input_x, self.emb_layer.word_to_id)
-
+        t_seqlen, t_input = utils.create_batches(t_input, t_seqlen)
         s_len = len(s_input)
         t_len = len(t_input)
-        for _ in range(config.num_epochs):
+
+        #Do not initialize Source and Target LSTM weights; The variables are from index 0 to 7.
+        #TODO: Find better fix for initialization of variables
+        init = tf.variables_initializer(tf.global_variables()[8:])
+        self.sess.run(init)
+
+        gloss = []
+        dloss = []
+        plt.axis([0, 10000, 0, 4])
+        plt.ion()
+        for epoch in range(config.num_epochs):
             for i in range(t_len/(10*config.batch_size)):
-                self.tlstm_train(s_input, s_seqlen)
-                self.discrim_train(s_input, t_input, s_seqlen, t_seqlen)
+                print epoch
+                gloss.append(self.tlstm_train(t_input, t_seqlen))
+                dloss.append(self.discrim_train(s_input, t_input, s_seqlen, t_seqlen))
+        for g, d, n in zip(gloss, dloss, range(7700)):
+            plt.scatter(n, g, color="r")
+            plt.scatter(n, d, color="b")
 
 
 if __name__ == "__main__":
     sess = tf.Session()
-    batch_size = config.batch_size
-    ext_emb_path = config.ext_emb_path
-    input_x, input_y = loader.prepare_input(config.datadir + config.train)
-    emb_layer = pretrain.Embedding(ext_emb_path)
-    seqlen, input_x = utils.convert_to_id(input_x, emb_layer.word_to_id)
-    input_y, tag_to_id = utils.create_and_convert_tag_to_id(input_y)
-    seqlen, inp = utils.create_batches(input_x, input_y, seqlen, batch_size)
-
-    num_labels = len(tag_to_id)
-
-    graph = loader.reload_smodel(sess)
     adv = AdversarialLearning(sess)
+    adv.train()
 

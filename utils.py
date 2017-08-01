@@ -105,28 +105,31 @@ def convert_tag_to_id(tag_to_id, tags):
     return Idx
 
 
-def create_batches(input_x, input_y, seqlen, batch_size):
+def create_batches(input_x, seqlen, input_y=None):
     """
     Implements batch creation by bucketing of same length sequences.
     :param input_x: List of indices of words in the sequence
     :param input_y: List of indices of tags in the sequence
     :param seqlen:
-    :param batch_size:
     :returns
     :param seqbatch: A list of sequence length of each bucket
     :param batches: A list of buckets of input/output pairs.
     """
-    inp = []
-    for num, item in enumerate(input_x):
-        inp.append([item, input_y[num]])
-    inp = sorted(inp, key=lambda x:len(x[0]))
+    if input_y is None:
+        inp = input_x
+        inp = sorted(inp, key=lambda x: len(x))
+    else:
+        inp = []
+        for num, item in enumerate(input_x):
+            inp.append([item, input_y[num]])
+        inp = sorted(inp, key=lambda x:len(x[0]))
     seqlen = sorted(seqlen)
 
     batches = []
     seqbatch = []
     prev_len = 1
     for num, seq in enumerate(inp):
-        if (num==0) or (len(batches[-1])%batch_size)==0:
+        if (num==0) or (len(batches[-1])%config.batch_size)==0:
             if (seqlen[num]==prev_len):
                 prev_len = seqlen[num]
             batches.append([seq])
@@ -151,7 +154,7 @@ def pad_last_batch(inp, seqlen, maxseqlen, inp_len, batch_size):
 def get_batch(data):
     num_buckets = len(data)
     randint = np.random.randint(num_buckets)
-    return data[randint]
+    return randint, data[randint]
 
 
 def eval(predictions, true_labels, tag_to_id):
