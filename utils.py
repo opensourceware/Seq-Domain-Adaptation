@@ -129,9 +129,8 @@ def create_batches(input_x, seqlen, input_y=None):
     seqbatch = []
     prev_len = 1
     for num, seq in enumerate(inp):
-        if (num==0) or (len(batches[-1])%config.batch_size)==0:
-            if (seqlen[num]==prev_len):
-                prev_len = seqlen[num]
+        if (num==0) or ((len(batches[-1])%config.batch_size)==0):
+            prev_len = seqlen[num]
             batches.append([seq])
             seqbatch.append([seqlen[num]])
         elif seqlen[num]==prev_len:

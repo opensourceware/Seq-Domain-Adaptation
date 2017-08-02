@@ -75,8 +75,9 @@ class FeedForward:
         # Output logits is of the form [num_labels, batch_size*sequence_length]
         lstm_size = int(inputs.get_shape()[2])
         inp = tf.reshape(tf.stack(axis=0, values=inputs), [-1, lstm_size])
-        print inp.get_shape()
         logits = tf.add(tf.matmul(inp, self.weights), self.biases)
+        num_labels = int(logits.get_shape()[1])
+        logits = tf.reshape(logits, [config.batch_size, -1, num_labels])
         return logits
 
 
@@ -107,7 +108,7 @@ if __name__ == "__main__":
     emb_layer = Embedding(ext_emb_path)
     seqlen, input_x = utils.convert_to_id(input_x, emb_layer.word_to_id)
     input_y, tag_to_id = utils.create_and_convert_tag_to_id(input_y)
-    seqlen, inp = utils.create_batches(input_x, input_y, seqlen, config.batch_size)
+    seqlen, inp = utils.create_batches(input_x, seqlen, input_y)
 
     num_labels = len(tag_to_id)
     lstm_size = 100
@@ -121,7 +122,7 @@ if __name__ == "__main__":
     embeddings = emb_layer.lookup(batch_input)
     hidden_output = blstm_layer.forward(embeddings, sequence_length)
     unary_potentials = ff_layer.forward(hidden_output)
-    unary_potentials = tf.reshape(unary_potentials, [config.batch_size, -1, num_labels])
+    #unary_potentials = tf.reshape(unary_potentials, [config.batch_size, -1, num_labels])
     log_likelihood, transition_params = tf.contrib.crf.crf_log_likelihood(unary_potentials, labels, sequence_length)
     loss =  tf.reduce_mean(-log_likelihood)
     #cost = loss(logits, labels)
@@ -138,9 +139,9 @@ if __name__ == "__main__":
     batch_len = len(inp)//batch_size
     loss2 = []
 
-    loss = []
+    loss_ = []
     for _ in range(config.num_epochs):
-        loss.append([])
+        loss_.append([])
         for seq_len, batch in zip(seqlen, inp):
             x = []
             y = []
@@ -151,8 +152,8 @@ if __name__ == "__main__":
                 for label in tags:
                     y[-1].append(label)
             sess.run(train_op, feed_dict={batch_input:x, labels:y, sequence_length:seq_len})
-            loss[-1].append(sess.run(loss, feed_dict={batch_input:x, labels:y, sequence_length:seq_len}))
-            print loss[-1][-1]
+            loss_[-1].append(sess.run(loss, feed_dict={batch_input:x, labels:y, sequence_length:seq_len}))
+            print loss_[-1][-1]
 
     loader.save_smodel(sess)
 
@@ -160,7 +161,7 @@ if __name__ == "__main__":
     input_x, input_y = loader.prepare_input(config.datadir + config.test)
     seqlen, input_x = utils.convert_to_id(input_x, emb_layer.word_to_id)
     input_y = utils.convert_tag_to_id(tag_to_id, input_y)
-    seqlen, inp = utils.create_batches(input_x, input_y, seqlen, config.batch_size)
+    seqlen, inp = utils.create_batches(input_x, seqlen, input_y)
     predictions = []
     true_labels = []
     for seq_len, batch in zip(seqlen, inp):
@@ -171,9 +172,7 @@ if __name__ == "__main__":
             tags = b[1]
             y.append([])
             for label in tags:
-                tag = [0] * num_labels
-                tag[label] = 1
-                y[-1].append(tag)
+                y[-1].append(label)
         unary_pot, trans_mat = sess.run(unary_potentials, transition_params, feed_dict={batch_input: x, labels: y, sequence_length: seq_len})
         pred, _ = tf.contrib.crf.viterbi_decode(unary_pot, trans_mat)
         for t, p in zip(y, pred):
@@ -183,5 +182,4 @@ if __name__ == "__main__":
             true_labels.append(np.argmax(t))
 
     eval(predictions, true_labels, tag_to_id)
-
 

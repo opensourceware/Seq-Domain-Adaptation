@@ -58,6 +58,11 @@ def prepare_input(file):
         for word in sample.split('\n'):
             input_x[-1].append(word.split()[0])
             input_y[-1].append(word.split()[1])
+        #Add a full stop to 1-word samples so that tf's CRF API can run over a sequence.
+        #CRF API throws an error for seqlen==1
+        if len(sample.split('\n'))==1:
+            input_x[-1].append('.')
+            input_y[-1].append('.')
     return input_x, input_y
 
 
