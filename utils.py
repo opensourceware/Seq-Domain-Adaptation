@@ -13,35 +13,43 @@ def create_input(sentence, word_to_id):
     return input
 
 
-def word_to_index(vocab, model=None):
+def word_to_index(vocab, word2vec_model, glove_emb_path, unk):
     """
-    Indexes vocabulary words and creates weight vector of corresponding words in the embedding file.
-    Arg:
-        vocab - list of words in the training set
-        model - gensim Word2Vec model
-    Returns:
-        weights - list of embeddings of corresponding words in index
-        index - dictionary of indexed vocab
+    :param glove_emb_path: file containing weights
+    :return:
+    :param: vocab - vabulary consists of 2.2 million words in the glove dictionary
+    :param: weights - weight matrix of (vocab_size, word_dim)
     """
-    if model is None:
-        pretrained_loc = config.PRETRAINED_WORDS
-        with open(pretrained_loc, 'r') as f:
-            pretrained_words = f.read().split('\n')
+    with open(glove_emb_path, 'r') as file:
+        glove_weights = file.read().split('\n')
+        if glove_weights[-1] == '':
+            glove_weights.pop()
+    glove_vocab = [w.split()[0] for w in glove_weights]
+    word_to_id = {}
+    word_to_id['PAD'] = 0
+    index = 1
     weights = []
-    index = {}
-    index['PAD'] = 0
-    i = 1
     for word in vocab:
-        if word in model:
-            weights.append(model[word])
-            index[word] = i
-            i += 1
-    index['UNK'] = i
-    emb_size = model['the'].shape[0]
-    unk = np.random.normal(0.001, 0.01, emb_size)
-    pad = np.zeros(shape=emb_size)
-    weights = np.vstack((pad, weights, unk))
-    return weights, index
+        if (word in glove_vocab) and (word in word2vec_model):
+            ind = glove_vocab.index(word)
+            glove_weight = np.array(glove_weights[ind].split()[1:]).astype(np.float32)
+            word2vec_weight = word2vec_model[word]
+        elif (word in glove_vocab) and (word not in word2vec_model):
+            print word
+            ind = glove_vocab.index(word)
+            glove_weight = np.array(weights[ind].split()[1:]).astype(np.float32)
+            word2vec_weight = unk
+        elif (word not in glove_vocab) and (word in word2vec_model):
+            glove_weight = unk
+            word2vec_weight = word2vec_model[word]
+        else:
+            continue
+        weights.append(np.concatenate(glove_weight, word2vec_weight))
+        word_to_id[word] = index
+        index += 1
+    word_to_id['UNK'] = index
+    weights = np.array(weights).astype(np.float)
+    return weights, word_to_id
 
 
 def convert_to_id(input_x, word_to_id):

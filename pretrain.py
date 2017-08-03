@@ -14,28 +14,25 @@ class Embedding:
     gensim model or weights file into tensorflow variable format.
     """
 
-    def __init__(self, ext_emb_path, vocab_path=None):
-        if vocab_path is None:
-            binary = ext_emb_path.endswith('.bin')
-            #model = KeyedVectors.load_word2vec_format(ext_emb_path, binary=binary)
-            model = Word2Vec.load_word2vec_format(ext_emb_path, binary=binary)
-            train_vocab = build_vocab()
-            self.weights, self.word_to_id = word_to_index(train_vocab, model)
-            self.emb_size = model['the'].shape[0]
-            self.voc_size = len(self.word_to_id)
-            #TODO:Better way to do Memory Management
-            del(model)
-        else:
-            vocab = build_vocab()
-            _, self.word_to_id = utils.word_to_index(vocab)
-            self.voc_size = len(self.word_to_id)
-            weights = np.loadtxt('emb.mat')
-            self.emb_size = weights[0].shape[0]
-            pad = np.zeros(shape=self.emb_size, dtype='float32')
-            unk = np.random.normal(0.001, 0.01, self.emb_size)
-            weights = np.vstack((weights, unk, pad))
-            self.weights = tf.Variable(weights, trainable=False, name="pretrained_embeddings")
-            self.weights.dtype = np.float32
+    def __init__(self, word2vec_emb_path, glove_emb_path):
+
+        binary = word2vec_emb_path.endswith('.bin')
+        word2vec_model = Word2Vec.load_word2vec_format(word2vec_emb_path, binary=binary)
+        train_vocab = build_vocab()
+        pad = np.zeros(shape=600, dtype='float32')
+        unk = np.random.normal(0.001, 0.01, 600)
+
+        weights, self.word_to_id = word_to_index(train_vocab, word2vec_model, glove_emb_path, unk)
+
+        self.emb_size = weights[0].shape[0]
+
+        self.voc_size = len(self.word_to_id)
+        #TODO:Better way to do Memory Management
+        del(word2vec_model)
+
+        weights = np.vstack((weights, unk, pad))
+        self.weights = tf.Variable(weights, trainable=False, name="pretrained_embeddings")
+        self.weights.dtype = np.float32
         # self.weights = tf.stack([weights, pad_zeros])
 
     def lookup(self, sentences):
@@ -103,9 +100,10 @@ def assign_lr(self, session, lr_value):
 if __name__ == "__main__":
 
     batch_size = config.batch_size
-    ext_emb_path = config.ext_emb_path
+    word2vec_emb_path = config.word2vec_emb_path
+    glove_emb_path = config.glove_emb_path
     input_x, input_y = loader.prepare_input(config.datadir+config.train)
-    emb_layer = Embedding(ext_emb_path)
+    emb_layer = Embedding(word2vec_emb_path, glove_emb_path)
     seqlen, input_x = utils.convert_to_id(input_x, emb_layer.word_to_id)
     input_y, tag_to_id = utils.create_and_convert_tag_to_id(input_y)
     seqlen, inp = utils.create_batches(input_x, seqlen, input_y)
