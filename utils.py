@@ -37,14 +37,14 @@ def word_to_index(vocab, word2vec_model, glove_emb_path, unk):
         elif (word in glove_vocab) and (word not in word2vec_model):
             print word
             ind = glove_vocab.index(word)
-            glove_weight = np.array(weights[ind].split()[1:]).astype(np.float32)
+            glove_weight = np.array(glove_weights[ind].split()[1:]).astype(np.float32)
             word2vec_weight = unk
         elif (word not in glove_vocab) and (word in word2vec_model):
             glove_weight = unk
             word2vec_weight = word2vec_model[word]
         else:
             continue
-        weights.append(np.concatenate(glove_weight, word2vec_weight))
+        weights.append(np.concatenate((glove_weight, word2vec_weight)))
         word_to_id[word] = index
         index += 1
     word_to_id['UNK'] = index
