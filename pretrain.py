@@ -1,7 +1,7 @@
 import tensorflow as tf
 import numpy as np
 from loader import build_vocab, load_emb
-from utils import word_to_index, eval
+from utils import word_to_index, word_to_index_glove, word_to_index_word2vec, eval
 import loader, utils, config
 import optparse
 #from gensim.models.keyedvectors import KeyedVectors
@@ -14,26 +14,25 @@ class Embedding:
     gensim model or weights file into tensorflow variable format.
     """
 
-    def __init__(self, word2vec_emb_path, glove_emb_path):
+    def __init__(self, word2vec_emb_path=None, glove_emb_path=None):
 
-        binary = word2vec_emb_path.endswith('.bin')
-        word2vec_model = Word2Vec.load_word2vec_format(word2vec_emb_path, binary=binary)
         train_vocab = build_vocab()
-        pad = np.zeros(shape=600, dtype='float32')
-        unk = np.random.normal(0.001, 0.01, 600)
 
-        weights, self.word_to_id = word_to_index(train_vocab, word2vec_model, glove_emb_path, unk)
+        if config.word2vec:
+            binary = word2vec_emb_path.endswith('.bin')
+            word2vec_model = Word2Vec.load_word2vec_format(word2vec_emb_path, binary=binary)
 
-        self.emb_size = weights[0].shape[0]
-
-        self.voc_size = len(self.word_to_id)
-        #TODO:Better way to do Memory Management
-        del(word2vec_model)
-
-        weights = np.vstack((weights, unk, pad))
-        self.weights = tf.Variable(weights, trainable=False, name="pretrained_embeddings")
-        self.weights.dtype = np.float32
-        # self.weights = tf.stack([weights, pad_zeros])
+        if config.glove and config.word2vec:
+            self.weights, self.word_to_id = word_to_index(train_vocab, word2vec_model, glove_emb_path)
+            del (word2vec_model)
+        elif config.glove and not config.word2vec:
+            self.weights, self.word_to_id = word_to_index_glove(train_vocab, glove_emb_path)
+        else:
+            self.weights, self.word_to_id = word_to_index_word2vec(train_vocab, word2vec_model)
+            # TODO:Better way to do Memory Management
+            del(word2vec_model)
+        self.weights.astype(np.float32)
+        self.weights = tf.Variable(self.weights, trainable=False, name="pretrained_embeddings")
 
     def lookup(self, sentences):
         return tf.nn.embedding_lookup(self.weights, sentences)
@@ -71,7 +70,7 @@ class FeedForward:
         # and multiplication happens for all examples in the batch
         # Output logits is of the form [num_labels, batch_size*sequence_length]
         lstm_size = int(inputs.get_shape()[2])
-        inp = tf.reshape(tf.stack(axis=0, values=inputs), [-1, lstm_size])
+        inp = tf.reshape(inputs, [-1, lstm_size])
         logits = tf.add(tf.matmul(inp, self.weights), self.biases)
         num_labels = int(logits.get_shape()[1])
         logits = tf.reshape(logits, [config.batch_size, -1, num_labels])
@@ -115,16 +114,22 @@ if __name__ == "__main__":
 
     batch_input = tf.placeholder("int32", shape=[None, None], name="input")
     sequence_length = tf.placeholder("int32", shape=[None], name="seqlen")
-    labels = tf.placeholder("int32", shape=[None, None],  name="labels")
+    if config.crf:
+        labels = tf.placeholder("int32", shape=[None, None],  name="labels")
+    else:
+        labels = tf.placeholder("int32", shape=[None, None, num_labels],  name="labels")
+
     #loss_mask = tf.placeholder("float64", shape=[None])
     embeddings = emb_layer.lookup(batch_input)
     hidden_output = blstm_layer.forward(embeddings, sequence_length)
     unary_potentials = ff_layer.forward(hidden_output)
     #unary_potentials = tf.reshape(unary_potentials, [config.batch_size, -1, num_labels])
-    log_likelihood, transition_params = tf.contrib.crf.crf_log_likelihood(unary_potentials, labels, sequence_length)
-    loss =  tf.reduce_mean(-log_likelihood)
-    #cost = loss(logits, labels)
-    train_op = train(loss)
+    if config.crf:
+        log_likelihood, transition_params = tf.contrib.crf.crf_log_likelihood(unary_potentials, labels, sequence_length)
+        cost =  tf.reduce_mean(-log_likelihood)
+    else:
+        cost = loss(unary_potentials, labels)
+    train_op = train(cost)
 
     sess = tf.Session()
     if config.restore:
@@ -148,9 +153,14 @@ if __name__ == "__main__":
                 tags = b[1]
                 y.append([])
                 for label in tags:
-                    y[-1].append(label)
+                    if config.crf:
+                        y[-1].append(label)
+                    else:
+                        tag = [0]*num_labels
+                        tag[label] = 1
+                        y[-1].append(tag)
             sess.run(train_op, feed_dict={batch_input:x, labels:y, sequence_length:seq_len})
-            loss_[-1].append(sess.run(loss, feed_dict={batch_input:x, labels:y, sequence_length:seq_len}))
+            loss_[-1].append(sess.run(cost, feed_dict={batch_input:x, labels:y, sequence_length:seq_len}))
             print loss_[-1][-1]
 
     loader.save_smodel(sess)
@@ -170,9 +180,18 @@ if __name__ == "__main__":
             tags = b[1]
             y.append([])
             for label in tags:
-                y[-1].append(label)
-        unary_pot, trans_mat = sess.run(unary_potentials, transition_params, feed_dict={batch_input: x, labels: y, sequence_length: seq_len})
-        pred, _ = tf.contrib.crf.viterbi_decode(unary_pot, trans_mat)
+                if config.crf:
+                    y[-1].append(label)
+                else:
+                    tag = [0] * num_labels
+                    tag[label] = 1
+                    y[-1].append(tag)
+        if config.crf:
+            trans_mat = sess.run(transition_params)
+            unary_pot = sess.run(unary_potentials, feed_dict={batch_input: x, labels: y, sequence_length: seq_len})
+            pred, _ = tf.contrib.crf.viterbi_decode(unary_pot, trans_mat)
+        else:
+            pred = sess.run(unary_potentials, feed_dict={batch_input: x, labels: y, sequence_length: seq_len})
         for t, p in zip(y, pred):
             print "Predicted ", np.argmax(p)
             print "True ", np.argmax(t)

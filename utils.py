@@ -13,13 +13,62 @@ def create_input(sentence, word_to_id):
     return input
 
 
-def word_to_index(vocab, word2vec_model, glove_emb_path, unk):
+def word_to_index_glove(vocab, glove_emb_path):
     """
     :param glove_emb_path: file containing weights
     :return:
-    :param: vocab - vabulary consists of 2.2 million words in the glove dictionary
+    :param: vocab - vocabulary consists of 2.2 million words in the glove dictionary
     :param: weights - weight matrix of (vocab_size, word_dim)
     """
+    pad = np.zeros(shape=300, dtype='float32')
+    unk = np.random.normal(0.001, 0.01, 300)
+
+    with open(glove_emb_path, 'r') as file:
+        glove_weights = file.read().split('\n')
+        if glove_weights[-1] == '':
+            glove_weights.pop()
+    glove_vocab = [w.split()[0] for w in glove_weights]
+    word_to_id = {}
+    word_to_id['PAD'] = 0
+    index = 1
+    weights = []
+    for word in vocab:
+        if (word in glove_vocab):
+            ind = glove_vocab.index(word)
+            glove_weight = np.array(glove_weights[ind].split()[1:]).astype(np.float32)
+            weights.append(glove_weight)
+            word_to_id[word] = index
+            index += 1
+    word_to_id['UNK'] = index
+    weights = np.array(weights).astype(np.float)
+    weights = np.vstack((pad, weights, unk))
+    return weights, word_to_id
+
+
+def word_to_index_word2vec(vocab, word2vec_model):
+    emb_size = word2vec_model['the'].shape[0]
+    print emb_size
+    pad = np.zeros(shape=emb_size, dtype='float32')
+    unk = np.random.normal(0.001, 0.01, emb_size)
+
+    word_to_id = {}
+    word_to_id['PAD'] = 0
+    index = 1
+    weights = []
+    for word in vocab:
+        if word in word2vec_model:
+            weights.append(word2vec_model[word])
+            word_to_id[word] = index
+            index += 1
+    word_to_id['UNK'] = index
+    weights = np.array(weights).astype(np.float32)
+    weights = np.vstack((pad, weights, unk))
+    return weights, word_to_id
+
+
+def word_to_index(vocab, word2vec_model, glove_emb_path):
+    pad = np.zeros(shape=600, dtype='float32')
+    unk = np.random.normal(0.001, 0.01, 600)
     with open(glove_emb_path, 'r') as file:
         glove_weights = file.read().split('\n')
         if glove_weights[-1] == '':
@@ -35,12 +84,11 @@ def word_to_index(vocab, word2vec_model, glove_emb_path, unk):
             glove_weight = np.array(glove_weights[ind].split()[1:]).astype(np.float32)
             word2vec_weight = word2vec_model[word]
         elif (word in glove_vocab) and (word not in word2vec_model):
-            print word
             ind = glove_vocab.index(word)
             glove_weight = np.array(glove_weights[ind].split()[1:]).astype(np.float32)
-            word2vec_weight = unk
+            word2vec_weight = unk[300:]
         elif (word not in glove_vocab) and (word in word2vec_model):
-            glove_weight = unk
+            glove_weight = unk[:300]
             word2vec_weight = word2vec_model[word]
         else:
             continue
@@ -49,6 +97,7 @@ def word_to_index(vocab, word2vec_model, glove_emb_path, unk):
         index += 1
     word_to_id['UNK'] = index
     weights = np.array(weights).astype(np.float)
+    weights = np.vstack((pad, weights, unk))
     return weights, word_to_id
 
 
@@ -168,11 +217,11 @@ def eval(predictions, true_labels, tag_to_id):
     class_wise_f1 = sklearn.metrics.f1_score(predictions, true_labels, average=None)
     macro_avg = sklearn.metrics.f1_score(predictions, true_labels, average="macro")
     print "Class wise F1 score is as follows:"
-    for tag, id in tag_to_id.items():
-        try:
-            print tag + "\t:\t" + str(class_wise_f1[id])
-        except IndexError:
-            continue
+for tag, id in tag_to_id.items():
+    try:
+        print tag + "\t:\t" + str(class_wise_f1[id])
+    except IndexError:
+        continue
     print "\n\n" + "Macro Avg F1 score is "+str(macro_avg)
 
 
