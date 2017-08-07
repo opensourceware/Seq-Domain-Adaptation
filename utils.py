@@ -162,6 +162,49 @@ def convert_tag_to_id(tag_to_id, tags):
     return Idx
 
 
+def convert_to_char_emb(input_x):
+    """
+    Create indexes of characters in the string. To pass an input with consistent length,
+    words are paded with zeros to match the length of longest word in the sentence.
+    :param input_x:
+    :return:
+    char_emb: one-hot indexed of characters in the words
+    char_to_id: a dict mapping characters to respective id
+    char_seqlen: list of actual length of words in sequences. The shape of list is
+    [num_sequences,len(sequence)]. This list doesn't have a consistent shape in the 2nd dimension which is
+    not a problem since batch_size=1. Passed to brnn.
+    TODO: Design for batch_size>1
+    """
+    char_emb = []
+    char_to_id = {}
+    ind = 0
+    max_char_len = 0
+    for seq in input_x:
+        for word in seq:
+            for char in word:
+                if char not in char_to_id:
+                    char_to_id[char] = ind
+                    ind+=1
+    char_emb_size = len(char_to_id)
+    char_seqlen = []
+    for seq in input_x:
+        char_emb.append([])
+        char_seqlen.append([len(x) for x in seq])
+        max_word_len = max(char_seqlen[-1])
+        for word in seq:
+            if len(word) > max_word_len:
+                max_word_len = len(word)
+            char_emb[-1].append([])
+            for char in word:
+                emb = [0] * char_emb_size
+                emb[char_to_id[char]] = 1
+                char_emb[-1][-1].append(emb)
+            if len(char_emb[-1][-1])<max_word_len:
+                padding = [[0]*char_emb_size]*(max_word_len-len(char_emb[-1][-1]))
+                char_emb[-1][-1]+=padding
+    return char_emb, char_to_id, char_seqlen
+
+
 def create_batches(input_x, seqlen, input_y=None):
     """
     Implements batch creation by bucketing of same length sequences.
@@ -217,11 +260,9 @@ def eval(predictions, true_labels, tag_to_id):
     class_wise_f1 = sklearn.metrics.f1_score(predictions, true_labels, average=None)
     macro_avg = sklearn.metrics.f1_score(predictions, true_labels, average="macro")
     print "Class wise F1 score is as follows:"
-for tag, id in tag_to_id.items():
-    try:
-        print tag + "\t:\t" + str(class_wise_f1[id])
-    except IndexError:
-        continue
-    print "\n\n" + "Macro Avg F1 score is "+str(macro_avg)
-
-
+    for tag, id in tag_to_id.items():
+        try:
+            print tag + "\t:\t" + str(class_wise_f1[id])
+        except IndexError:
+            continue
+        print "\n\n" + "Macro Avg F1 score is "+str(macro_avg)

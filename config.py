@@ -11,10 +11,11 @@ PRETRAINED_VECTORS = "/home/manpreetkaur/EE/word2vecTools/vectors.txt"
 batch_size = 1
 num_epochs = 5
 lstm_size = 100
+char_lstm_size = 50
 keep_prob = 0.7
 max_grad_norm = 5
 restore = False
 
 crf = False
-glove = False
+glove = True
 word2vec = True
