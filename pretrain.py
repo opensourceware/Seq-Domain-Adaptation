@@ -6,6 +6,7 @@ import loader, utils, config
 import optparse
 #from gensim.models.keyedvectors import KeyedVectors
 from gensim.models import Word2Vec
+import json
 
 
 class Embedding:
@@ -15,6 +16,12 @@ class Embedding:
     """
 
     def __init__(self, opts, word2vec_emb_path=None, glove_emb_path=None):
+
+        if opts.restore:
+            self.weights = tf.Variable(np.ones((39762, 600)), trainable=False, name="pretrained_embeddings", dtype=tf.float64)
+            with open("word_to_id", "r") as f:
+                self.word_to_id = json.load(f)
+            return
 
         train_vocab = build_vocab()
 
@@ -113,8 +120,12 @@ if __name__ == "__main__":
         help="Use word2vec embeddings"
     )
     optparser.add_option(
-        "-e", "--char_emb", default=True,
+        "-e", "--char_emb", default=False,
         help="Run character-level embeddings"
+    )
+    optparser.add_option(
+        "-r", "--restore", default=True,
+        help="Rebuild the model and restore weights from checkpoint"
     )
     opts = optparser.parse_args()[0]
 
@@ -148,6 +159,7 @@ if __name__ == "__main__":
 
     #loss_mask = tf.placeholder("float64", shape=[None])
     word_embeddings = emb_layer.lookup(batch_input)
+    word_embeddings = tf.cast(word_embeddings, tf.float32)
     if opts.char:
         _, char_embeddings = char_layer.forward(char_inp, char_seqlen, "CharLSTM1")
         char_embeddings = tf.expand_dims(char_embeddings, 0)
@@ -165,9 +177,9 @@ if __name__ == "__main__":
     train_op = train(cost)
 
     sess = tf.Session()
-    if config.restore:
+    if opts.restore:
         saver = tf.train.Saver()
-        saver.restore(sess, "./source_model")
+        saver.restore(sess, "./source_model_crf")
     else:
         init = tf.global_variables_initializer()
         sess.run(init)
@@ -203,6 +215,13 @@ if __name__ == "__main__":
     seqlen, input_x = utils.convert_to_id(input_x, emb_layer.word_to_id)
     input_y = utils.convert_tag_to_id(tag_to_id, input_y)
     seqlen, inp = utils.create_batches(input_x, seqlen, input_y)
+
+    ##Run on Medpost (target) data
+    input_x, input_y = loader.prepare_medpost_input()
+    seqlen, input_x = utils.convert_to_id(input_x, emb_layer.word_to_id)
+    input_y = utils.convert_tag_to_id(tag_to_id, input_y)
+    seqlen, inp = utils.create_batches(input_x, seqlen, input_y)
+
     predictions = []
     true_labels = []
     for seq_len, batch in zip(seqlen, inp):

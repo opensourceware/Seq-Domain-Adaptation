@@ -265,4 +265,6 @@ def eval(predictions, true_labels, tag_to_id):
             print tag + "\t:\t" + str(class_wise_f1[id])
         except IndexError:
             continue
-        print "\n\n" + "Macro Avg F1 score is "+str(macro_avg)
+    print "\n\n" + "Macro Avg F1 score is "+str(macro_avg)
+
+

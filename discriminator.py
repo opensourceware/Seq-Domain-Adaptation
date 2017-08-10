@@ -9,9 +9,9 @@ class Discriminator:
     """
     def __init__(self, hidden_size):
         with tf.variable_scope('discriminator'):
-            self.classifier_weights = tf.Variable(tf.random_normal([hidden_size, 2], stddev=0.035, dtype=tf.float64), name="discrim_weights", trainable=True)
-            self.classifier_bias = tf.Variable(tf.zeros(2, dtype=tf.float64), name="discrim_bias", trainable=True)
-            self.lr = tf.placeholder("float64", shape=None)
+            self.classifier_weights = tf.Variable(tf.random_normal([hidden_size, 2], stddev=0.035, dtype=tf.float32), name="discrim_weights", trainable=True)
+            self.classifier_bias = tf.Variable(tf.zeros(2, dtype=tf.float32), name="discrim_bias", trainable=True)
+            self.lr = tf.placeholder("float32", shape=None)
             self.prediction = None
             self.loss = None
             self.cost = None
@@ -23,20 +23,22 @@ class Discriminator:
 
 class AdversarialLearning(object):
 
-    def __init__(self, sess):
+    def __init__(self, sess, opts):
         self.sess = sess
 
         self.batch_input = tf.placeholder("int32", shape=[None, None], name="input")
         self.sequence_length = tf.placeholder("int32", shape=[None], name="seqlen")
         self.label = tf.placeholder(tf.bool, shape=[2], name="labels")
 
-        self.emb_layer = pretrain.Embedding(config.ext_emb_path)
+        self.emb_layer = pretrain.Embedding(opts, config.word2vec_emb_path, config.glove_emb_path)
         self.source_lstm = generator.SourceLSTM()
         embeddings = self.emb_layer.lookup(self.batch_input)
+        embeddings = tf.cast(embeddings, tf.float32)
         _, self.source_last_state = self.source_lstm.forward(embeddings, self.sequence_length)
-        #Restore source LSTM after SourceLSTM variables are created.
+        #Restore source LSTM after SourceLSTM variables are created i.e. the weights are 
+        #automatically loaded in SourceLSTM variables from the checkpoint.
         saver = tf.train.Saver()
-        saver.restore(sess, "./source_model")
+        saver.restore(sess, "./source_model_crf")
         #Now create the target LSTM and initialize from the weights in the saved checkpoint.
         self.target_lstm = generator.TargetLSTM()
         _, self.target_last_state = self.target_lstm.forward(embeddings, self.sequence_length)
@@ -73,7 +75,7 @@ class AdversarialLearning(object):
             label = np.random.randint(2)
             true_label = [0, 0]
             true_label[label] = 1
-            ##TODO: Fix for batch_size!=1
+            ##TODO: Fix for batch_size>1
             #true_label = true_label*config.batch_size
             true_label = [bool(a) for a in true_label]
             if label==0:
@@ -123,7 +125,60 @@ class AdversarialLearning(object):
 
 
 if __name__ == "__main__":
-    sess = tf.Session()
-    adv = AdversarialLearning(sess)
-    adv.train()
+	optparser = optparse.OptionParser()
+	optparser.add_option(
+		"-g", "--glove", default=True,
+		help="Use glove embeddings"
+	)
+	optparser.add_option(
+		"-c", "--crf", default=True,
+		help="Use CRF"
+	)
+	optparser.add_option(
+		"-w", "--word2vec", default=True,
+		help="Use word2vec embeddings"
+	)
+	optparser.add_option(
+		"-r", "--restore", default=True,
+		help="Rebuild the model and restore weights from checkpoint"
+	)
+	opts = optparser.parse_args()[0]
+
+	sess = tf.Session()
+
+	adv = discriminator.AdversarialLearning(sess, opts)
+
+	input_x, _ = loader.prepare_input(config.datadir + config.train)
+	s_seqlen, s_input = utils.convert_to_id(input_x, adv.emb_layer.word_to_id)
+	s_seqlen, s_input = utils.create_batches(s_input, s_seqlen)
+	input_x, _ = loader.prepare_medpost_input()
+	t_seqlen, t_input = utils.convert_to_id(input_x, adv.emb_layer.word_to_id)
+	t_seqlen, t_input = utils.create_batches(t_input, t_seqlen)
+	s_len = len(s_input)
+	t_len = len(t_input)
+
+	#Do not initialize Source and Target LSTM weights; The variables are from index 0 to 7.
+	#TODO: Find better fix for initialization of variables
+	init = tf.variables_initializer(tf.global_variables()[9:])
+	sess.run(init)
+
+	gloss = []
+	dloss = []
+	plt.axis([0, 10000, 0, 4])
+	plt.ion()
+	train_steps = 0
+	for epoch in range(config.num_epochs):
+	    for i in range(t_len/(10*config.batch_size)):
+		print epoch
+		gloss.append(adv.tlstm_train(t_input, t_seqlen))
+		dloss.append(adv.discrim_train(s_input, t_input, s_seqlen, t_seqlen))
+		train_steps += 1
+		print train_steps
+		print gloss[-1]
+		print dloss[-1]
+
+	for g,d,n in zip(gloss, dloss, range(7700)):
+	    plt.scatter(n, g, color="r")
+	    plt.scatter(n, d, color="b")
+
 

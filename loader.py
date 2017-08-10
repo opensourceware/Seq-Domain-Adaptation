@@ -70,7 +70,10 @@ target_to_source_mappings = {
     "MC": "CD",
     "DD": "DT",
     "II": "IN",
-    "JJS": "JJT",
+    "CSN": "IN",
+    "CST": "IN",
+    "CS": "IN",
+    "JJT": "JJS",
     "RR": "RB",
     "RRR": "RBR",
     "RRT": "RBS",
@@ -116,13 +119,15 @@ def map_tags(data):
     data = re.sub(r'(be_)VBB ', r'\g<1>VB ', data)
     # Replace are_VBB with are_VBP
     data = re.sub(r'(are_)VBB ', r'\g<1>VBP ', data)
+    #TODO: Please put "Are|are" in the same regular expression. -__-
+    data = re.sub(r'(Are_)VBB ', r'\g<1>VBP ', data)
     #Replace to_TO do_VDB with do_VB
     data = re.sub(r'(to_TO do_)VDB ', r'\g<1>VB ', data)
     #Replace remaining do_VDB with do_VB
     data = re.sub(r'(do_)VDB ', r'\g<1>VBP ', data)
     #Replace direct tag mapping schemes from the dictionary
     for ttag, stag in target_to_source_mappings.items():
-        data = re.sub(ttag+" ", stag+" ", data)
+        data = re.sub("_"+ttag+" ", "_"+stag+" ", data)
     return data
 
 
@@ -159,7 +164,7 @@ def load_and_save_weights():
 
 
 def reload_smodel(sess):
-    saver = tf.train.import_meta_graph("source_model.meta")
+    saver = tf.train.import_meta_graph("source_model_crf.meta")
     saver.restore(sess, tf.train.latest_checkpoint("./"))
     graph = tf.get_default_graph()
     return graph
@@ -174,5 +179,4 @@ if __name__ == "__main__":
     #word_to_index = utils.word_to_index(vocab)
     #weights = load_emb(word_to_index, config.PRETRAINED_VECTORS)
     input_x, input_y = prepare_input(config.datadir + config.train)
-
 
