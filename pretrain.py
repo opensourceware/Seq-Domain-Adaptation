@@ -18,7 +18,7 @@ class Embedding:
     def __init__(self, opts, word2vec_emb_path=None, glove_emb_path=None):
 
         if opts.restore:
-            self.weights = tf.Variable(np.ones((39762, 600)), trainable=False, name="pretrained_embeddings", dtype=tf.float64)
+            self.weights = tf.Variable(np.ones((39762, 600)), trainable=False, name="pretrained_embeddings", dtype=tf.float32)
             with open("word_to_id", "r") as f:
                 self.word_to_id = json.load(f)
             return

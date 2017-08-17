@@ -36,6 +36,12 @@ def build_vocab():
         string = f.read()
         words = nltk.word_tokenize(string)
         vocab += words
+    dir = config.medpost_train_datadir
+    for file in os.listdir(dir):
+        with open(dir+file, 'r') as f:
+            string = f.read()
+            words = nltk.word_tokenize(string)
+            vocab += words
     vocab = set(vocab)
     return vocab
 
@@ -164,7 +170,7 @@ def load_and_save_weights():
 
 
 def reload_smodel(sess):
-    saver = tf.train.import_meta_graph("source_model_crf.meta")
+    saver = tf.train.import_meta_graph("./target_model.meta")
     saver.restore(sess, tf.train.latest_checkpoint("./"))
     graph = tf.get_default_graph()
     return graph
