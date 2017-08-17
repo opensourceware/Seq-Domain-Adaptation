@@ -1,6 +1,6 @@
 import tensorflow as tf
 import numpy as np
-import config, pretrain, generator, loader, utils
+import config, pretrain, lstm_mapper, loader, utils
 import matplotlib.pyplot as plt
 
 """
@@ -65,7 +65,7 @@ class AdversarialLearning(object):
         self.label = tf.placeholder(tf.bool, shape=[2], name="labels")
 
         self.emb_layer = pretrain.Embedding(opts, config.word2vec_emb_path, config.glove_emb_path)
-        self.source_lstm = generator.SourceLSTM()
+        self.source_lstm = lstm_mapper.SourceLSTM()
         embeddings = self.emb_layer.lookup(self.batch_input)
         embeddings = tf.cast(embeddings, tf.float32)
         self.source_seq_state, self.source_last_state = self.source_lstm.forward(embeddings, self.sequence_length)
@@ -74,7 +74,7 @@ class AdversarialLearning(object):
         saver = tf.train.Saver()
         saver.restore(sess, "./source_model_only_embeddings/source_model_only_embeddings")
         #Now create the target LSTM and initialize from the weights in the saved checkpoint.
-        self.target_lstm = generator.TargetLSTM()
+        self.target_lstm = lstm_mapper.TargetLSTM()
         self.target_seq_state, self.target_last_state = self.target_lstm.forward(embeddings, self.sequence_length)
 
         self.target_lstm._initialize(sess)
@@ -153,7 +153,7 @@ if __name__ == "__main__":
 
 	sess = tf.Session()
 
-	adv = discriminator.AdversarialLearning(sess, opts)
+	adv = AdversarialLearning(sess, opts)
 
 	input_x, _ = loader.prepare_input(config.datadir + config.train)
 	s_seqlen, s_input = utils.convert_to_id(input_x, adv.emb_layer.word_to_id)
@@ -181,7 +181,7 @@ if __name__ == "__main__":
 		dloss.append(adv.discrim_train(s_input, t_input, s_seqlen, t_seqlen))
 		train_steps += 1
 		if gloss[-1]>1.5:
-			print "Train only generator with 300 iterations (1500 updates)"
+			print "Train only mapper with 300 iterations (1500 updates)"
 			gloss.append(adv.tlstm_train(t_input, t_seqlen, 300))
 		print train_steps
 		print gloss[-1]
