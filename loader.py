@@ -169,9 +169,10 @@ def load_and_save_weights():
     np.savetxt('emb.mat', weights)
 
 
-def reload_smodel(sess):
-    saver = tf.train.import_meta_graph("./target_model.meta")
-    saver.restore(sess, tf.train.latest_checkpoint("./"))
+def reload_smodel(sess, dir, meta):
+    #saver = tf.train.import_meta_graph("./source_model_only_embeddings/source_model_only_embeddings.meta")
+    saver = tf.train.import_meta_graph(dir+meta)
+    saver.restore(sess, tf.train.latest_checkpoint(dir))
     graph = tf.get_default_graph()
     return graph
 

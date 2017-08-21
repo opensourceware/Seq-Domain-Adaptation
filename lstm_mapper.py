@@ -9,7 +9,7 @@ class BaseLSTM(object):
     def __init__(self, scope):
         """
         Load all BLSTM weights and biases from the pre-computed graph.
-        :param graph: Graoh loaded from saved checkpoint.
+        :param graph: Graph loaded from saved checkpoint.
         """
         with tf.variable_scope(scope, reuse=True):
             self.pretrain_lstm_fw_weights = tf.get_variable("bidirectional_rnn/fw/lstm_cell/weights", dtype="float32")
