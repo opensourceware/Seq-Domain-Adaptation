@@ -19,7 +19,9 @@ class Embedding:
     def __init__(self, opts, word2vec_emb_path=None, glove_emb_path=None):
 
         if opts.restore:
-            self.weights = tf.Variable(np.ones((39762, 600)), trainable=False, name="embeddings", dtype=tf.float32)
+            #The default size if float32. Embeddings variable is cast to float32 later.
+            #It is initialized at float64 because of checkpoint contains  embeddings variable of type float64.
+            self.weights = tf.get_variable("embeddings", shape=(39762, 600), dtype=tf.float32, trainable=False)
             with open("word_to_id", "r") as f:
                 self.word_to_id = json.load(f)
             return
@@ -67,9 +69,9 @@ class BLSTM:
 class FeedForward:
     def __init__(self, input_size, num_labels):
         # get_variable because softmax_w and softmax_b will be called multiple times during training.
-        self.weights = tf.Variable(tf.random_normal([input_size, num_labels], stddev=0.035, dtype=tf.float32),
-                                   name="weights", trainable=True)
-        self.biases = tf.Variable(tf.zeros(num_labels, dtype=tf.float32), name="biases", trainable=True)
+        self.weights = tf.get_variable("weights", initializer=tf.random_normal([input_size, num_labels], stddev=0.035, dtype=tf.float32),
+                                       trainable=True)
+        self.biases = tf.get_variable("biases", initializer=tf.zeros(num_labels, dtype=tf.float32), trainable=True)
 
     def forward(self, inputs):
         if config.keep_prob < 1:
@@ -104,10 +106,10 @@ def assign_lr(self, session, lr_value):
     session.run(self._lr_update, feed_dict={self._new_lr: lr_value})
 
 
-def initialize_embeddings(graph):
+def initialize_embeddings(graph, sess):
     pretrained_embeddings = graph.get_tensor_by_name("pretrained_embeddings:0")
     with tf.variable_scope("word", reuse=True):
-        embeddings = tf.get_variable("embeddings:0")
+        embeddings = tf.get_variable("embeddings", dtype=tf.float32)
         sess.run(tf.assign(embeddings, pretrained_embeddings))
 
 
@@ -146,22 +148,23 @@ class BasePOSTagger(object):
                     lstm_bw_biases = tf.get_variable("biases", dtype="float32")
                     sess.run(tf.assign(lstm_bw_weights, self.pretrain_lstm_bw_weights))
                     sess.run(tf.assign(lstm_bw_biases, self.pretrain_lstm_bw_biases))
-        ff_weights = tf.get_variable("weights:0")
+        ff_weights = tf.get_variable("weights")
         sess.run(tf.assign(ff_weights, self.classifier_weights))
-        ff_biases = tf.get_variable("pretrained_embeddings:0")
+        ff_biases = tf.get_variable("biases")
         sess.run(tf.assign(ff_biases, self.classifier_biases))
         if opts.crf:
-            crf_transitions = tf.get_variable("transitions:0")
+            crf_transitions = tf.get_variable("transitions")
             sess.run(tf.assign(crf_transitions, self.transitions))
 
 
 class POSTagger(BasePOSTagger):
-    def __init__(self, graph, sess, opts, placeholders, emb_layer, scope):
-        super(POSTagger, self).__init__(graph, opts)
+    def __init__(self, sess, opts, placeholders, emb_layer, scope, graph=None):
+        if opts.restore:
+            super(POSTagger, self).__init__(graph, opts)
         input_x, input_y = loader.prepare_input(config.datadir+config.train)
-        input_y, tag_to_id = utils.create_and_convert_tag_to_id(input_y)
+        input_y, self.tag_to_id = utils.create_and_convert_tag_to_id(input_y)
         self.placeholders = placeholders
-        self.num_labels = len(tag_to_id)
+        self.num_labels = len(self.tag_to_id)
 
         self.emb_layer = emb_layer
         with tf.variable_scope(scope):
@@ -226,7 +229,7 @@ class POSTagger(BasePOSTagger):
             loader.save_smodel(sess)
 
 
-    def eval(self, seqlen, inp):
+    def eval(self, seqlen, inp, sess, opts):
         predictions = []
         true_labels = []
         for seq_len, batch in zip(seqlen, inp):
@@ -268,7 +271,7 @@ class POSTagger(BasePOSTagger):
                     predictions.append(np.argmax(p))
                     true_labels.append(np.argmax(t))
 
-        eval(predictions, true_labels, tag_to_id)
+        eval(predictions, true_labels, self.tag_to_id)
 
 
 if __name__ == "__main__":
@@ -326,7 +329,7 @@ if __name__ == "__main__":
         placeholders['labels'] = tf.placeholder("int32", shape=[None, None, num_labels], name="labels")
 
     graph = loader.reload_smodel(sess, "./source_blstm_crf/", "source_model_crf.meta")
-    initialize_embeddings(graph)
+    initialize_embeddings(graph, sess)
     sourcePOS = POSTagger(graph, sess, opts, placeholders, emb_layer, "SourcePOS")
     targetPOS = POSTagger(graph, sess, opts, placeholders, emb_layer, "TargetPOS")
 
@@ -335,11 +338,11 @@ if __name__ == "__main__":
     seqlen, input_x = utils.convert_to_id(input_x, emb_layer.word_to_id)
     input_y = utils.convert_tag_to_id(tag_to_id, input_y)
     seqlen, inp = utils.create_batches(input_x, seqlen, input_y)
-    sourcePOS.eval(seqlen, inp)
+    sourcePOS.eval(seqlen, inp, sess, opts)
 
     ##Run on Medpost (target) data
     input_x, input_y = loader.prepare_medpost_input()
     seqlen, input_x = utils.convert_to_id(input_x, emb_layer.word_to_id)
     input_y = utils.convert_tag_to_id(tag_to_id, input_y)
     seqlen, inp = utils.create_batches(input_x, seqlen, input_y)
-    targetPOS.eval(seqlen, inp)
+    targetPOS.eval(seqlen, inp, sess, opts)

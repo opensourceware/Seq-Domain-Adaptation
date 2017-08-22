@@ -64,7 +64,7 @@ class Discriminator:
 class AdversarialLearning(object):
     def __init__(self, sess, opts, num_labels):
         self.sess = sess
-
+        self.num_labels = num_labels
         self.batch_input = tf.placeholder("int32", shape=[None, None], name="input")
         self.sequence_length = tf.placeholder("int32", shape=[None], name="seqlen")
         if opts.crf:
@@ -79,9 +79,16 @@ class AdversarialLearning(object):
                         'labels': self.labels,
                         'discrim_labels': self.discrim_label}
 
-        self.emb_layer = pretrain.Embedding(opts, config.word2vec_emb_path, config.glove_emb_path)
-        self.source_pos = pretrain.POSTagger(sess, opts, placeholders, self.emb_layer, "SourcePOS")
-        self.target_pos = pretrain.POSTagger(sess, opts, placeholders, self.emb_layer, "TargetPOS")
+        if opts.crf:
+            graph = loader.reload_smodel(sess, "./source_blstm_crf/", "source_model_crf.meta")
+        else:
+            graph = loader.reload_smodel(sess, "./source_model_only_embeddings/", "source_model_only_embeddings.meta")
+
+        with tf.variable_scope("word"):
+            self.emb_layer = pretrain.Embedding(opts, config.word2vec_emb_path, config.glove_emb_path)
+        pretrain.initialize_embeddings(graph, sess)
+        self.source_pos = pretrain.POSTagger(graph, sess, opts, placeholders, self.emb_layer, "SourcePOS")
+        self.target_pos = pretrain.POSTagger(graph, sess, opts, placeholders, self.emb_layer, "TargetPOS")
 
         self.discriminator = Discriminator()
         self.discrim_logits = tf.cond(self.discrim_label[1],
@@ -130,32 +137,63 @@ class AdversarialLearning(object):
             else:
                 ind, inp = utils.get_batch(t_input)
                 inp_len = t_seqlen[ind]
+            x = []
+            for b in inp:
+                x.append(b[0])
             self.sess.run(self.discrim_train_op,
-                          feed_dict={self.batch_input: inp[0][0], self.sequence_length: inp_len, self.discrim_label: true_label})
+                          feed_dict={self.batch_input: x, self.sequence_length: inp_len, self.discrim_label: true_label})
         return self.sess.run(self.d_cost,
-                             feed_dict={self.batch_input: inp[0][0], self.sequence_length: inp_len, self.discrim_label: true_label})
+                             feed_dict={self.batch_input: x, self.sequence_length: inp_len, self.discrim_label: true_label})
 
-    def tlstm_train(self, inp, seqlen, num_updates=5):
+    def tlstm_train(self, t_inp, seqlen, opts, num_updates=5):
         for i in range(num_updates):
-            ind, inp = utils.get_batch(inp)
+            ind, inp = utils.get_batch(t_inp)
             inp_len = seqlen[ind]
-            self.sess.run(self.tlstm_train_op, feed_dict={self.batch_input: inp[0][0], self.sequence_length: inp_len})
+            x = []
+            y = []
+            for b in inp:
+                x.append(b[0])
+                tags = b[1]
+                y.append([])
+                for label in tags:
+                    if opts.crf:
+                        y[-1].append(label)
+                    else:
+                        tag = [0] * self.num_labels
+                        tag[label] = 1
+                        y[-1].append(tag)
+            self.sess.run(self.tlstm_train_op, feed_dict={self.batch_input: x, self.sequence_length: inp_len})
             self.sess.run(self.target_pos.train_op,
-                          feed_dict={self.batch_input: inp[0][0], self.sequence_length: inp_len,
-                                     self.labels: inp[0][1]})
-        return self.sess.run(self.t_cost, feed_dict={self.batch_input: inp, self.sequence_length: inp_len})
+                          feed_dict={self.batch_input: x, self.sequence_length: inp_len,
+                                     self.labels: y})
+        return self.sess.run(self.t_cost, feed_dict={self.batch_input: x, self.sequence_length: inp_len})
 
-    def slstm_train(self, inp, seqlen, num_updates=5):
+    def slstm_train(self, s_inp, seqlen, opts, num_updates=5):
         for i in range(num_updates):
-            ind, inp = utils.get_batch(inp)
+            ind, inp = utils.get_batch(s_inp)
             inp_len = seqlen[ind]
-            self.sess.run(self.slstm_train_op, feed_dict={self.batch_input: inp[0][0], self.sequence_length: inp_len})
+            x = []
+            y = []
+            for b in inp:
+                x.append(b[0])
+                tags = b[1]
+                y.append([])
+                for label in tags:
+                    if opts.crf:
+                        y[-1].append(label)
+                    else:
+                        tag = [0] * self.num_labels
+                        tag[label] = 1
+                        y[-1].append(tag)
+            self.sess.run(self.slstm_train_op, feed_dict={self.batch_input: x, self.sequence_length: inp_len})
             self.sess.run(self.source_pos.train_op,
-                          feed_dict={self.batch_input: inp[0][0], self.sequence_length: inp_len,
-                                     self.labels: inp[0][1]})
-        return self.sess.run(self.s_cost, feed_dict={self.batch_input: inp, self.sequence_length: inp_len})
+                          feed_dict={self.batch_input: x, self.sequence_length: inp_len,
+                                     self.labels: y})
+        return self.sess.run(self.s_cost, feed_dict={self.batch_input: x, self.sequence_length: inp_len})
+
 
 if __name__ == "__main__":
+
     optparser = optparse.OptionParser()
     optparser.add_option(
         "-g", "--glove", default=True,
@@ -170,10 +208,18 @@ if __name__ == "__main__":
         help="Use word2vec embeddings"
     )
     optparser.add_option(
+        "-e", "--char", default=False,
+        help="Run character-level embeddings"
+    )
+    optparser.add_option(
         "-r", "--restore", default=True,
         help="Rebuild the model and restore weights from checkpoint"
     )
     opts = optparser.parse_args()[0]
+
+    sess = tf.Session()
+
+    adv = AdversarialLearning(sess, opts, 45)
 
     input_x, input_y = loader.prepare_input(config.datadir + config.train)
     seqlen, input_x = utils.convert_to_id(input_x, adv.emb_layer.word_to_id)
@@ -188,13 +234,10 @@ if __name__ == "__main__":
     s_len = len(s_inp)
     t_len = len(t_inp)
 
-    sess = tf.Session()
-
-    adv = AdversarialLearning(sess, opts, len(tag_to_id))
-
     # Do not initialize Source and Target POS tagger weights
-    init_vars = [v for v in tf.global_variables() if
-                 not v.name.startswith("SourcePOS") and not v.name.startswith("TargetPOS")]
+#    init_vars = [v for v in tf.global_variables() if
+#                not v.name.startswith("SourcePOS") and not v.name.startswith("TargetPOS")]
+    init_vars = tf.global_variables()[23:]
     init = tf.variables_initializer(init_vars)
     sess.run(init)
 
@@ -207,9 +250,9 @@ if __name__ == "__main__":
     for epoch in range(config.num_epochs):
         for i in range(t_len / (10 * config.batch_size)):
             print epoch
-            tloss.append(adv.tlstm_train(t_inp, t_seqlen))
             dloss.append(adv.discrim_train(s_inp, t_inp, s_seqlen, t_seqlen))
-            sloss.append(adv.slstm_train(s_inp, s_seqlen))
+            tloss.append(adv.tlstm_train(t_inp, t_seqlen, opts))
+            sloss.append(adv.slstm_train(s_inp, s_seqlen, opts))
             train_steps += 1
             #if tloss[-1] > 1.5:
             #    print "Train only mapper with 300 iterations (1500 updates)"
@@ -223,5 +266,7 @@ if __name__ == "__main__":
         plt.scatter(n, g, color="r")
         plt.scatter(n, d, color="b")
 
-    saver = tf.train.Saver([tf.global_variables()[i] for i in range(5, 9)])
+    saver = tf.train.Saver([tf.global_variables()[i] for i in range(9, 15)])
+    saver.save(sess, "./source_model")
+    saver = tf.train.Saver([tf.global_variables()[i] for i in range(16, 22)])
     saver.save(sess, "./target_model")
