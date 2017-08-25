@@ -124,18 +124,18 @@ for seq_len, batch in zip(seqlen[40:], inp[40:]):
     #y[0] and pred[0] because batch_size=1
     if opts.crf:
         for t, p in zip(y[0], pred):
-            print "Predicted ", p
-            print "True ", t
+            #print "Predicted ", p
+            #print "True ", t
             predictions.append(p)
             true_labels.append(t)
     else:
-        for t, p in zip(y[0], pred[0]):
-            print "Predicted ", np.argmax(p)
-            print "True ", np.argmax(t)
-            predictions.append(np.argmax(p))
-            true_labels.append(np.argmax(t))
+        pred.shape = (len(y), pred.shape[1] / len(y), 45)
+        for y_, pred_ in zip(y, pred):
+            for t, p in zip(y_, pred_):
+                print "Predicted ", np.argmax(p)
+                print "True ", np.argmax(t)
+                predictions.append(np.argmax(p))
+                true_labels.append(np.argmax(t))
 
 
-utils.eval(predictions, true_labels, tag_to_id)
-
-
+print utils.eval(predictions, true_labels, tag_to_id)

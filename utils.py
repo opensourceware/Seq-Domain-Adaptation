@@ -224,12 +224,11 @@ def create_batches(input_x, seqlen, input_y=None):
             inp.append([item, input_y[num]])
         inp = sorted(inp, key=lambda x:len(x[0]))
     seqlen = sorted(seqlen)
-
     batches = []
     seqbatch = []
     prev_len = 1
     for num, seq in enumerate(inp):
-        if (num==0) or ((len(batches[-1])%config.batch_size)==0):
+        if (num==0) or ((len(batches[-1])%5)==0):
             prev_len = seqlen[num]
             batches.append([seq])
             seqbatch.append([seqlen[num]])
