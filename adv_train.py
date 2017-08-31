@@ -43,7 +43,7 @@ class Discriminator:
                                                   name="discrim_weights", trainable=True)
             self.classifier_bias = tf.Variable(tf.zeros(2, dtype=tf.float32), name="discrim_bias", trainable=True)
 
-    def forward(self, seq_hidden_state, seq_len):
+    def forward(self, seq_hidden_state):
         seq_hidden_state = tf.expand_dims(seq_hidden_state, -1)
         # if seq_len[0]<4:
         #    seq_hidden_state = tf.concat([seq_hidden_state, tf.zeros([1, 200, (4-seq_len), 1])], axis=2)
@@ -60,7 +60,7 @@ class Discriminator:
         self.dropout = tf.nn.dropout(self.conv_output, 0.7)
         self.prediction = tf.add(tf.matmul(tf.squeeze(self.dropout, [-1]), self.classifier_weights),
                                  self.classifier_bias)
-        return self.prediction[0]
+        return self.prediction
 
 
 class AdversarialLearning(object):
@@ -68,8 +68,9 @@ class AdversarialLearning(object):
         self.sess = sess
 
         self.batch_input = tf.placeholder("int32", shape=[None, None], name="input")
+        self.batch_size = tf.placeholder("int32", shape=None)
         self.sequence_length = tf.placeholder("int32", shape=[None], name="seqlen")
-        self.label = tf.placeholder(tf.bool, shape=[2], name="labels")
+        self.label = tf.placeholder(tf.bool, shape=[None, 2], name="labels")
 
         self.emb_layer = pretrain.Embedding(opts, config.word2vec_emb_path, config.glove_emb_path)
         self.source_lstm = lstm_mapper.SourceLSTM()
@@ -90,15 +91,30 @@ class AdversarialLearning(object):
         self.target_lstm._initialize(sess)
 
         self.discriminator = Discriminator()
-        self.discrim_logits = tf.cond(self.label[1],
-                                      lambda: self.discriminator.forward(self.target_seq_state, self.sequence_length),
-                                      lambda: self.discriminator.forward(self.source_seq_state, self.sequence_length))
-        self.tlstm_logits = self.discriminator.forward(self.target_seq_state, self.sequence_length)
+
+        discrim_logits = tf.cond(self.label[0][1], lambda: self.discriminator.forward(
+                                    tf.expand_dims(self.target_seq_state[0], 0)),
+                                        lambda: self.discriminator.forward(tf.expand_dims(self.source_seq_state[0], 0)))
+        i = tf.constant(1)
+        while_cond = lambda i, discrim_logits: tf.less(i, tf.shape(self.label)[0])
+        def body(i, discrim_logits):
+             discrim_logits = tf.concat([discrim_logits, tf.cond(self.label[i][1], lambda: self.discriminator.forward(
+                                    tf.expand_dims(self.target_seq_state[i], 0)),
+                                        lambda: self.discriminator.forward(tf.expand_dims(self.source_seq_state[i], 0)))], axis=0)
+             return [tf.add(i, 1), discrim_logits]
+
+        index, self.discrim_logits = tf.while_loop(while_cond, body, [i, discrim_logits], shape_invariants=[i.get_shape(), tf.TensorShape([None, 2])])
+        print discrim_logits
+        print self.discrim_logits
+#        self.discrim_logits = [tf.cond(self.label[i][1], lambda: self.discriminator.forward(tf.expand_dims(self.target_seq_state[i], 0)),
+#                                lambda: self.discriminator.forward(tf.expand_dims(self.source_seq_state[i], 0))) for i in tf.range(tf.shape(self.label)[0])]
+        self.tlstm_logits = self.discriminator.forward(self.target_seq_state)
 
         # Can fix the learning rate in AdamOptimizer because the final gradient updates decay in the formula.
         self.optimizer = tf.train.AdamOptimizer(0.0005)
         self.discrim_loss(self.discrim_logits, self.label)
-        self.tlstm_loss(self.tlstm_logits)
+        print self.d_cost, self.d_loss
+        self.tlstm_loss(self.tlstm_logits, self.label)
         self.d_tvars = [param for param in tf.trainable_variables() if 'discriminator' in param.name]
         self.g_tvars = [param for param in tf.trainable_variables() if "TargetLSTM" in param.name]
         self.discrim_train_op = self.optimizer.minimize(self.d_cost, var_list=self.d_tvars)
@@ -108,64 +124,89 @@ class AdversarialLearning(object):
         self.d_loss = tf.nn.softmax_cross_entropy_with_logits(logits=logits, labels=true_label)
         self.d_cost = tf.reduce_mean(self.d_loss)
 
-    def tlstm_loss(self, predictions):
+    def tlstm_loss(self, predictions, true_label):
         # Target LSTM tries to maximally confuse the discriminator.
-        self.g_loss = tf.nn.softmax_cross_entropy_with_logits(logits=predictions, labels=[1, 0])
+        self.g_loss = tf.nn.softmax_cross_entropy_with_logits(logits=predictions, labels=true_label)
         self.g_cost = tf.reduce_mean(self.g_loss)
 
     def discrim_train(self, s_input, t_input, s_seqlen, t_seqlen, eval=False):
         for i in range(1):
-            label = np.random.randint(2)
-            true_label = [0, 0]
-            true_label[label] = 1
-            ##TODO: Fix for batch_size>1
-            # true_label = true_label*config.batch_size
-            true_label = [bool(a) for a in true_label]
-            if label == 0:
-                ind, inp = utils.get_batch(s_input)
-                inp_len = s_seqlen[ind]
-            else:
-                p = np.random.random()
-                if p<0.1:
-                    ind, inp = utils.get_batch(s_input)
-                    inp_len = s_seqlen[ind]
-                else:
-                    ind, inp = utils.get_batch(t_input)
-                    inp_len = t_seqlen[ind]
-            self.sess.run(self.discrim_train_op,
-                          feed_dict={self.batch_input: inp, self.sequence_length: inp_len, self.label: true_label})
-        if eval:
-            avg_loss = 0
-            for i in range(5):
-                label = np.random.randint(2)
-                true_label = [0, 0]
-                true_label[label] = 1
-                ##TODO: Fix for batch_size>1
-                # true_label = true_label*config.batch_size
-                true_label = [bool(a) for a in true_label]
-                if label == 0:
-                    ind, inp = utils.get_batch(s_input)
-                    inp_len = s_seqlen[ind]
-                else:
-                    ind, inp = utils.get_batch(t_input)
-                    inp_len = t_seqlen[ind]
-                avg_loss += self.sess.run(self.d_cost,
-                                 feed_dict={self.batch_input: inp, self.sequence_length: inp_len, self.label: true_label})
-            return avg_loss/5
+            labels = []
+            inp = []
+            inp_len = []
 
+            ind_, inp_ = utils.get_batch(s_input)
+            inp_len_ = s_seqlen[ind_]
+            true_label = [1, 0]
+            true_label = [bool(a) for a in true_label]
+            labels += [true_label]*len(inp_)
+            inp += inp_
+            inp_len += inp_len_
+            self.sess.run(self.discrim_train_op,
+                          feed_dict={self.batch_input: inp, self.sequence_length: inp_len, self.label: labels})
+
+            labels = []
+            inp = []
+            inp_len = []
+            p = np.random.random()
+            if p<0.07:
+                ind_, inp_ = utils.get_batch(s_input)
+                inp_len_ = s_seqlen[ind_]
+                true_label = [1, 0]
+                true_label = [bool(a) for a in true_label]
+            else:
+                ind_, inp_ = utils.get_batch(t_input)
+                inp_len_ = t_seqlen[ind_]
+                true_label = [0, 1]
+                true_label = [bool(a) for a in true_label]
+            labels += [true_label]*len(inp_)
+            inp += inp_
+            inp_len += inp_len_
+
+            self.sess.run(self.discrim_train_op,
+                          feed_dict={self.batch_input: inp, self.sequence_length: inp_len, self.label: labels, self.batch_size: len(inp)})
+        if eval:
+            labels = []
+            inp = []
+            inp_len = []
+
+            ind_, inp_ = utils.get_batch(s_input)
+            inp_len_ = s_seqlen[ind_]
+            true_label = [1, 0]
+            true_label = [bool(a) for a in true_label]
+            labels += [true_label]*len(inp_)
+            inp += inp_
+            inp_len += inp_len_
+            loss = self.sess.run(self.d_cost,
+                                 feed_dict={self.batch_input: inp, self.sequence_length: inp_len, self.label: labels, self.batch_size: len(inp)})
+
+            labels = []
+            inp = []
+            inp_len = []
+            ind_, inp_ = utils.get_batch(t_input)
+            inp_len_ = t_seqlen[ind_]
+            true_label = [0, 1]
+            true_label = [bool(a) for a in true_label]
+            labels += [true_label]*len(inp_)
+            inp += inp_
+            inp_len += inp_len_
+            return loss + self.sess.run(self.d_cost,
+                                 feed_dict={self.batch_input: inp, self.sequence_length: inp_len, self.label: labels, self.batch_size: len(inp)})
 
     def tlstm_train(self, input_x, seqlen, num_updates=5, eval=False):
+        true_label = [0, 1]
+        true_label = [bool(a) for a in true_label]
         for i in range(num_updates):
             ind, inp = utils.get_batch(input_x)
             inp_len = seqlen[ind]
-            self.sess.run(self.tlstm_train_op, feed_dict={self.batch_input: inp, self.sequence_length: inp_len})
+            labels = [true_label]*len(inp)
+            self.sess.run(self.tlstm_train_op, feed_dict={self.batch_input: inp, self.sequence_length: inp_len, self.label: labels})
         if eval:
-            avg_loss = 0
-            for i in range(5):
-                ind, inp = utils.get_batch(input_x)
-                inp_len = seqlen[ind]
-                avg_loss += self.sess.run(self.g_cost, feed_dict={self.batch_input: inp, self.sequence_length: inp_len})
-            return avg_loss/5
+            ind, inp = utils.get_batch(input_x)
+            inp_len = seqlen[ind]
+            labels = [true_label]*len(inp)
+            print ind, inp, labels
+            return self.sess.run(self.g_cost, feed_dict={self.batch_input: inp, self.sequence_length: inp_len, self.label: labels})
 
 
 if __name__ == "__main__":

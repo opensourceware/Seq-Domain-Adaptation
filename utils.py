@@ -107,7 +107,7 @@ def convert_to_id(input_x, word_to_id):
     :param input_x: a list of word sequences
     :param word_to_id: a dictionary mapping words to corresponding ids
     :return:
-    :param seqlen: a list of lenghts of sequences
+    :param seqlen: a list of lengths of sequences
     :param Idx: mapped list of words sequences
     """
     seqlen = []
@@ -228,7 +228,7 @@ def create_batches(input_x, seqlen, input_y=None):
     seqbatch = []
     prev_len = 1
     for num, seq in enumerate(inp):
-        if (num==0) or ((len(batches[-1])%5)==0):
+        if (num==0) or ((len(batches[-1])%config.batch_size)==0):
             prev_len = seqlen[num]
             batches.append([seq])
             seqbatch.append([seqlen[num]])
@@ -249,7 +249,7 @@ def pad_last_batch(inp, seqlen, maxseqlen, inp_len, batch_size):
     return inp, seqlen
 
 
-def get_batch(data):
+def get_batch(data, size=config.batch_size):
     num_buckets = len(data)
     randint = np.random.randint(num_buckets)
     return randint, data[randint]
