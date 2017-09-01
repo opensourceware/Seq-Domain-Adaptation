@@ -113,7 +113,7 @@ if __name__ == "__main__":
         help="Use glove embeddings"
     )
     optparser.add_option(
-        "-c", "--crf", default=True,
+        "-c", "--crf", default=False,
         help="Use CRF"
     )
     optparser.add_option(
@@ -127,6 +127,10 @@ if __name__ == "__main__":
     optparser.add_option(
         "-r", "--restore", default=False,
         help="Rebuild the model and restore weights from checkpoint"
+    )
+    optparser.add_option(
+        "-f", "--restore_file", default="./source_blstm_crf/source_model_crf",
+        help="Path to rebuild the model and restore weights from checkpoint"
     )
     opts = optparser.parse_args()[0]
 
@@ -180,7 +184,7 @@ if __name__ == "__main__":
     sess = tf.Session()
     if opts.restore:
         saver = tf.train.Saver()
-        saver.restore(sess, "./source_blstm_crf/source_model_crf")
+        saver.restore(sess, opts.restore_file)
     else:
         init = tf.global_variables_initializer()
         sess.run(init)
