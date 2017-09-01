@@ -3,6 +3,7 @@ import numpy as np
 import config, pretrain, lstm_mapper, loader, utils
 import matplotlib.pyplot as plt
 import time
+import optparse
 
 """
 class Discriminator:
@@ -129,7 +130,7 @@ class AdversarialLearning(object):
         self.g_loss = tf.nn.softmax_cross_entropy_with_logits(logits=predictions, labels=true_label)
         self.g_cost = tf.reduce_mean(self.g_loss)
 
-    def discrim_train(self, s_input, t_input, s_seqlen, t_seqlen, eval=False):
+    def discrim_train(self, s_input, t_input, s_seqlen, t_seqlen, ev=False):
         for i in range(1):
             labels = []
             inp = []
@@ -149,23 +150,25 @@ class AdversarialLearning(object):
             inp = []
             inp_len = []
             p = np.random.random()
+            true_label = [0, 1]
+            true_label = [bool(a) for a in true_label]
             if p<0.07:
                 ind_, inp_ = utils.get_batch(s_input)
                 inp_len_ = s_seqlen[ind_]
-                true_label = [1, 0]
-                true_label = [bool(a) for a in true_label]
+                a, b = utils.get_batch(t_input)
+                c = t_seqlen[a]
+                t_data = [[true_label]*len(b), b, c]
             else:
                 ind_, inp_ = utils.get_batch(t_input)
                 inp_len_ = t_seqlen[ind_]
-                true_label = [0, 1]
-                true_label = [bool(a) for a in true_label]
+                t_data = [[true_label]*len(inp_), inp_, inp_len_]
             labels += [true_label]*len(inp_)
             inp += inp_
             inp_len += inp_len_
 
             self.sess.run(self.discrim_train_op,
                           feed_dict={self.batch_input: inp, self.sequence_length: inp_len, self.label: labels, self.batch_size: len(inp)})
-        if eval:
+        if ev:
             labels = []
             inp = []
             inp_len = []
@@ -192,21 +195,24 @@ class AdversarialLearning(object):
             inp_len += inp_len_
             return loss + self.sess.run(self.d_cost,
                                  feed_dict={self.batch_input: inp, self.sequence_length: inp_len, self.label: labels, self.batch_size: len(inp)})
+        return t_data
 
-    def tlstm_train(self, input_x, seqlen, num_updates=5, eval=False):
-        true_label = [0, 1]
-        true_label = [bool(a) for a in true_label]
-        for i in range(num_updates):
-            ind, inp = utils.get_batch(input_x)
-            inp_len = seqlen[ind]
-            labels = [true_label]*len(inp)
-            self.sess.run(self.tlstm_train_op, feed_dict={self.batch_input: inp, self.sequence_length: inp_len, self.label: labels})
-        if eval:
-            ind, inp = utils.get_batch(input_x)
-            inp_len = seqlen[ind]
-            labels = [true_label]*len(inp)
-            print ind, inp, labels
+    def tlstm_train(self, t_data, num_updates=5, ev=False):
+        #true_label = [0, 1]
+        #true_label = [bool(a) for a in true_label]
+        if ev:
+            #ind, inp = utils.get_batch(input_x)
+            #inp_len = seqlen[ind]
+            #labels = [true_label]*len(inp)
+            labels, inp, inp_len = t_data
             return self.sess.run(self.g_cost, feed_dict={self.batch_input: inp, self.sequence_length: inp_len, self.label: labels})
+
+        for i in range(num_updates):
+            #ind, inp = utils.get_batch(input_x)
+            #inp_len = seqlen[ind]
+            #labels = [true_label]*len(inp)
+            labels, inp, inp_len = t_data
+            self.sess.run(self.tlstm_train_op, feed_dict={self.batch_input: inp, self.sequence_length: inp_len, self.label: labels})
 
 
 if __name__ == "__main__":
@@ -253,18 +259,17 @@ if __name__ == "__main__":
     plt.ion()
     train_steps = 0
     for epoch in range(config.num_epochs):
-        for i in range(t_len / (10 * config.batch_size)):
-            print epoch
-            adv.tlstm_train(t_input, t_seqlen)
-            adv.discrim_train(s_input, t_input, s_seqlen, t_seqlen)
+        for i in range(t_len / config.batch_size):
+            t_data = adv.discrim_train(s_input, t_input, s_seqlen, t_seqlen)
+            adv.tlstm_train(t_data)
             train_steps += 1
             if train_steps%50==0:
-                gloss.append(adv.tlstm_train(t_input, t_seqlen, True))
+                gloss.append(adv.tlstm_train(t_data, 5, True))
                 dloss.append(adv.discrim_train(s_input, t_input, s_seqlen, t_seqlen, True))
                 saver = tf.train.Saver([tf.global_variables()[i] for i in range(5, 9)])
                 saver.save(sess, "./target_model")
                 print "Wait for 45 secs to run eval"
-                time.sleep(120)
+                time.sleep(90)
 
     n = range(len(gloss))
     plt.scatter(n, gloss, color="r")

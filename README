@@ -3,3 +3,11 @@ A domain adaptation system using Adversarial learning. This project performs dom
 The tagged news data has been obtained from Wall Street Journal PTB corpus and medical tagged data is obtained from MedPOST.
 
 The trained networks are source LSTM for news data, target LSTM for medical data and a common classifier which can tag sequences from both source and target LSTM distributions.
+
+Domain Adaptation is performed in 3 parts:
+1. Run python pretrain.py to train POS Tagger on WSJ dataset.
+   Pretrained weights can be found in source_blstm_crf and source_model_only_embeddings folders.
+2. Run python adv_train.py to perform adversarial training between TargetLSTM and discriminator,
+3. Run python run_trained_model.py to evaluate trained TargetLSTM on MedPost dataset.
+
+2 & 3 alternate: To analyse F1 score on medpost dataset during adversarial training, run ./script.sh simulatenously with adv_train.py.

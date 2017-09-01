@@ -81,7 +81,8 @@ class FeedForward:
         inp = tf.reshape(inputs, [-1, lstm_size])
         logits = tf.add(tf.matmul(inp, self.weights), self.biases)
         num_labels = int(logits.get_shape()[1])
-        logits = tf.reshape(logits, [config.batch_size, -1, num_labels])
+        shape = tf.concat([tf.shape(inputs)[:2], tf.constant([num_labels])], axis=0)
+        logits = tf.reshape(logits, shape)
         return logits
 
 
@@ -120,11 +121,11 @@ if __name__ == "__main__":
         help="Use word2vec embeddings"
     )
     optparser.add_option(
-        "-e", "--char_emb", default=False,
+        "-e", "--char", default=False,
         help="Run character-level embeddings"
     )
     optparser.add_option(
-        "-r", "--restore", default=True,
+        "-r", "--restore", default=False,
         help="Rebuild the model and restore weights from checkpoint"
     )
     opts = optparser.parse_args()[0]
@@ -179,36 +180,36 @@ if __name__ == "__main__":
     sess = tf.Session()
     if opts.restore:
         saver = tf.train.Saver()
-        saver.restore(sess, "./source_model_crf")
+        saver.restore(sess, "./source_blstm_crf/source_model_crf")
     else:
         init = tf.global_variables_initializer()
         sess.run(init)
 
-    batch_len = len(inp)//batch_size
-    loss2 = []
+        batch_len = len(inp)//batch_size
+        loss2 = []
 
-    loss_ = []
-    for _ in range(config.num_epochs):
-        loss_.append([])
-        for seq_len, batch in zip(seqlen, inp):
-            x = []
-            y = []
-            for b in batch:
-                x.append(b[0])
-                tags = b[1]
-                y.append([])
-                for label in tags:
-                    if opts.crf:
-                        y[-1].append(label)
-                    else:
-                        tag = [0]*num_labels
-                        tag[label] = 1
-                        y[-1].append(tag)
-            sess.run(train_op, feed_dict={batch_input:x, labels:y, sequence_length:seq_len})
-            loss_[-1].append(sess.run(cost, feed_dict={batch_input:x, labels:y, sequence_length:seq_len}))
-            print loss_[-1][-1]
+        loss_ = []
+        for _ in range(config.num_epochs):
+            loss_.append([])
+            for seq_len, batch in zip(seqlen, inp):
+                x = []
+                y = []
+                for b in batch:
+                    x.append(b[0])
+                    tags = b[1]
+                    y.append([])
+                    for label in tags:
+                        if opts.crf:
+                            y[-1].append(label)
+                        else:
+                            tag = [0]*num_labels
+                            tag[label] = 1
+                            y[-1].append(tag)
+                sess.run(train_op, feed_dict={batch_input:x, labels:y, sequence_length:seq_len})
+                loss_[-1].append(sess.run(cost, feed_dict={batch_input:x, labels:y, sequence_length:seq_len}))
+                print loss_[-1][-1]
 
-    loader.save_smodel(sess)
+        loader.save_smodel(sess)
 
     ##Run model on test data
     input_x, input_y = loader.prepare_input(config.datadir + config.test)

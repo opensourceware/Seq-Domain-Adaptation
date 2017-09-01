@@ -129,7 +129,7 @@ for seq_len, batch in zip(seqlen[40:], inp[40:]):
             predictions.append(p)
             true_labels.append(t)
     else:
-        pred.shape = (len(y), pred.shape[1] / len(y), 45)
+        #pred.shape = (len(y), pred.shape[1] / len(y), 45)
         for y_, pred_ in zip(y, pred):
             for t, p in zip(y_, pred_):
                 #print "Predicted ", np.argmax(p)

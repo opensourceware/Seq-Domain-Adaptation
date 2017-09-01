@@ -1,5 +1,4 @@
 #LIST OF ENTITIES:
-EntityList = "/iesl/data/meta/pubtator/entities.txt"
 datadir = "/home/mkaur/Desktop/ptb/"
 medpost_train_datadir = "/home/mkaur/Desktop/SeqAN_Medpost/medpost/tagged/"
 train = "train.txt"
